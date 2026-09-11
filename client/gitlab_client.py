@@ -16,7 +16,7 @@ class GitLabClient:
         Args:
             api_url (str): GitLab API URL (required)
             token (str): Personal access token for authentication (required)
-            use_topic_filtering (bool): If True, enforce Unified-Prisma topic filtering
+            use_topic_filtering (bool): If True, enforce the configured Cortex topic filtering
             visibility (str | None): Optional GitLab visibility filter to apply to project queries
         
         Raises:

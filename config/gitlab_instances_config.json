@@ -1,13 +1,13 @@
 {
   "ug-saas-dev": {
     "url": "https://gitlab.com",
-    "prisma-integration-id": "0bb4d222-dd9a-4391-800b-3dab2579884b",
+    "cortex-data-source-id": "0bb4d222-dd9a-4391-800b-3dab2579884b",
     "use-topic-filtering": false,
     "visibility": "private"
   },
   "ug-onprem-prod": {
     "url": "https://gitlab.int.bell.ca",
-    "prisma-integration-id": "4040e2da-82af-4efe-b7f8-5cab59f1c50e",
+    "cortex-data-source-id": "4040e2da-82af-4efe-b7f8-5cab59f1c50e",
     "use-topic-filtering": true
   }
 }

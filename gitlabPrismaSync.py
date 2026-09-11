@@ -1,24 +1,24 @@
 
-"""GitLab-Prisma Cloud Synchronization Orchestrator.
+"""GitLab-Cortex Cloud Synchronization Orchestrator.
 
-Synchronizes GitLab projects and users with Prisma Cloud Code Security by:
+Synchronizes GitLab projects and users with Cortex Cloud Application Security by:
 1. Fetching active GitLab projects based on activity thresholds
-2. Activating missing repositories in Prisma Cloud integrations
+2. Selecting missing repositories in Cortex Cloud data sources
 3. Building user-to-repository mappings from GitLab
-4. Creating/updating Prisma Cloud roles for users with their repository access
+4. Creating/assigning Cortex Cloud roles for users with their repository access
 
 Workflow:
 - Validates required environment variables (credentials, integration ID)
-- Initializes GitLab and Prisma Cloud API clients
+- Initializes GitLab and Cortex Cloud API clients
 - Identifies active projects and missing repositories
-- Synchronizes user repository access via Prisma Cloud custom roles
+- Synchronizes user access via Cortex Cloud RBAC roles
 - Logs results and handles errors gracefully
 
 Environment Variables (required):
 - GITLAB_TOKEN: Personal access token for GitLab API
-- PRISMA_ACCESS_TOKEN: Prisma Cloud API access key
-- PRISMA_SECRET_TOKEN: Prisma Cloud API secret key
-- GITLAB_CONFIG_KEY: Key used to select GitLab/Prisma integration config
+- CORTEX_API_KEY_ID: Cortex Cloud API key ID
+- CORTEX_API_SECRET: Cortex Cloud API secret key
+- GITLAB_CONFIG_KEY: Key used to select GitLab/Cortex data source config
 
 Environment Variables (optional):
 - RUN_MODE: 'DRY_RUN' (default) or 'LIVE' - controls whether changes are applied
@@ -49,7 +49,7 @@ from dotenv import load_dotenv
 
 # Local application imports
 from client.gitlab_client import GitLabClient
-from client.prisma_client import PrismaClient, PrismaClientError
+from client.cortex_client import CortexClient, CortexClientError
 from common.logger import LoggerFactory
 from common.utils import build_user_repos_mapping_parallel
 
@@ -64,8 +64,8 @@ SEPARATOR_LINE = "**************************************************************
 # Required environment variables (set by pipeline Vault or local .env)
 REQUIRED_ENV_VARS = [
     'GITLAB_TOKEN',
-    'PRISMA_ACCESS_TOKEN',
-    'PRISMA_SECRET_TOKEN',
+    'CORTEX_API_KEY_ID',
+    'CORTEX_API_SECRET',
     'GITLAB_CONFIG_KEY'
 ]
 
@@ -133,7 +133,7 @@ def get_runtime_config() -> Tuple[str, int, int]:
     return run_mode, top_n_projects, activity_threshold_minutes
 
 def load_gitlab_instance_config() -> Dict[str, Dict[str, Any]]:
-    """Load GitLab/Prisma instance configuration from JSON file."""
+    """Load GitLab/Cortex instance configuration from JSON file."""
     config_path = os.getenv(
         'GITLAB_INSTANCE_CONFIG_FILE',
         DEFAULT_GITLAB_INSTANCE_CONFIG_PATH,
@@ -156,7 +156,7 @@ def load_gitlab_instance_config() -> Dict[str, Dict[str, Any]]:
             f"Invalid GitLab instance config format in {config_path}: expected non-empty object"
         )
 
-    required_fields = {'url', 'prisma-integration-id', 'use-topic-filtering'}
+    required_fields = {'url', 'cortex-data-source-id', 'use-topic-filtering'}
     for config_key, config_entry in config_data.items():
         if not isinstance(config_entry, dict):
             raise EnvironmentValidationError(
@@ -172,7 +172,7 @@ def load_gitlab_instance_config() -> Dict[str, Dict[str, Any]]:
     return config_data
 
 def get_gitlab_config() -> Tuple[str, str, bool, Optional[str], str]:
-    """Resolve GitLab and Prisma settings from GITLAB_CONFIG_KEY."""
+    """Resolve GitLab and Cortex settings from GITLAB_CONFIG_KEY."""
     config_key = os.getenv('GITLAB_CONFIG_KEY', '').strip()
     if not config_key:
         raise EnvironmentValidationError("Missing required GITLAB_CONFIG_KEY")
@@ -186,7 +186,7 @@ def get_gitlab_config() -> Tuple[str, str, bool, Optional[str], str]:
         )
 
     gitlab_host_url = selected_config['url'].rstrip('/')
-    prisma_integration_id = str(selected_config['prisma-integration-id'])
+    cortex_data_source_id = str(selected_config['cortex-data-source-id'])
     use_topic_filtering = bool(selected_config['use-topic-filtering'])
     visibility = selected_config.get('visibility')
     gitlab_api_url = f"{gitlab_host_url}/api/v4"
@@ -197,7 +197,7 @@ def get_gitlab_config() -> Tuple[str, str, bool, Optional[str], str]:
     )
     return (
         gitlab_api_url,
-        prisma_integration_id,
+        cortex_data_source_id,
         use_topic_filtering,
         visibility,
         config_key,
@@ -222,21 +222,21 @@ def fetch_active_projects(
     return projects
 
 def activate_repositories(
-    prisma: PrismaClient,
+    cortex: CortexClient,
     projects: list,
-    prisma_intg_id: str
+    cortex_data_source_id: str
 ) -> dict:
-    """Ensure Prisma Cloud integration is updated with missing repositories."""
+    """Ensure the Cortex Cloud data source selects the active repositories."""
     logger.info(SEPARATOR_LINE)
     logger.info("Repository Activation Processing")
     logger.info(SEPARATOR_LINE)
-    return prisma.activate_missing_repos_integration(projects, prisma_intg_id)
+    return cortex.activate_missing_repos_integration(projects, cortex_data_source_id)
 
 def build_user_mapping(
     projects: list,
     gitlab: GitLabClient,
-    prisma_repo_lookup: dict,
-    allowed_prisma_emails: Optional[Set[str]] = None
+    cortex_repo_lookup: dict,
+    allowed_cortex_emails: Optional[Set[str]] = None
 ) -> dict:
     """Build user-to-repository mappings for role synchronization."""
     logger.info(SEPARATOR_LINE)
@@ -244,8 +244,8 @@ def build_user_mapping(
     logger.info(SEPARATOR_LINE)
     start_time = time.time()
     user_repos = build_user_repos_mapping_parallel(
-        projects, gitlab, prisma_repo_lookup,
-        allowed_emails=allowed_prisma_emails
+        projects, gitlab, cortex_repo_lookup,
+        allowed_emails=allowed_cortex_emails
     )
     elapsed_time = time.time() - start_time
     logger.info(
@@ -255,7 +255,7 @@ def build_user_mapping(
     return user_repos
 
 def summarize_role_sync(results: dict, run_mode: str = 'DRY_RUN') -> bool:
-    """Summarize results from Prisma role synchronization.
+    """Summarize results from Cortex role synchronization.
 
     Args:
         results: Dictionary of user role sync results
@@ -274,7 +274,7 @@ def summarize_role_sync(results: dict, run_mode: str = 'DRY_RUN') -> bool:
     for username, result in results.items():
         if result.get('success'):
             success_count += 1
-        elif result.get('reason', '').lower() == 'user not found in prisma':
+        elif result.get('reason', '').lower() == 'user not found in cortex':
             skipped_count += 1
             skipped_users.append((username, result.get('reason')))
         else:
@@ -285,7 +285,7 @@ def summarize_role_sync(results: dict, run_mode: str = 'DRY_RUN') -> bool:
         f"{fail_count} failed, {skipped_count} skipped."
     )
     if skipped_count > 0:
-        logger.warning("Skipped users (not found in Prisma):")
+        logger.warning("Skipped users (not found in Cortex):")
         for username, reason in skipped_users:
             logger.warning(f"  {username}: {reason}")
     if fail_count > 0:
@@ -308,11 +308,11 @@ def summarize_role_sync(results: dict, run_mode: str = 'DRY_RUN') -> bool:
 
     return True
 
-def initialize_clients(run_mode: str) -> Tuple[GitLabClient, PrismaClient]:
-    """Initialize GitLab, Prisma API clients.
+def initialize_clients(run_mode: str) -> Tuple[GitLabClient, CortexClient]:
+    """Initialize GitLab and Cortex Cloud API clients.
     
     Returns:
-        tuple: (gitlab_client, prisma_client)
+        tuple: (gitlab_client, cortex_client)
     
     Raises:
         SystemExit: If client initialization fails
@@ -321,27 +321,19 @@ def initialize_clients(run_mode: str) -> Tuple[GitLabClient, PrismaClient]:
         gitlab_token = os.getenv('GITLAB_TOKEN')
         (
             gitlab_api_url,
-            gitlab_integration_id,
+            cortex_data_source_id,
             use_topic_filtering,
             visibility,
             gitlab_config_key,
         ) = get_gitlab_config()
-        prisma_access_token = os.getenv('PRISMA_ACCESS_TOKEN')
-        prisma_secret_token = os.getenv('PRISMA_SECRET_TOKEN')
-        prisma_api_url = os.getenv(
-            'PRISMA_API_URL',
-            os.getenv('PRISMA_HOST_URL', 'https://api.ca.prismacloud.io ')
+        cortex_api_key_id = os.getenv('CORTEX_API_KEY_ID')
+        cortex_api_secret = os.getenv('CORTEX_API_SECRET')
+        cortex_api_url = os.getenv(
+            'CORTEX_API_URL',
+            os.getenv('CORTEX_HOST_URL', 'https://api-yourfqdn')
         )
-        role_name_prefix = os.getenv('PRISMA_ROLE_NAME_PREFIX', 'devex_')
-        ssdlc_developer_base_role_name = os.getenv(
-            'PRISMA_SSDLC_DEVELOPER_BASE_ROLE_NAME',
-            'ssdlc_developer_base',
-        )
-        appsec_ssdlc_sa_dev_role_name = os.getenv(
-            'PRISMA_APPSEC_SSDLC_SA_DEV_ROLE_NAME',
-            'appsec-ssdlc-sa-dev',
-        )
-        prisma_dry_run = run_mode == 'DRY_RUN'
+        role_name_prefix = os.getenv('CORTEX_ROLE_NAME_PREFIX', 'devex_')
+        default_role_name = os.getenv('CORTEX_DEFAULT_ROLE_NAME', '')
         
         gitlab = GitLabClient(
             api_url=gitlab_api_url,
@@ -349,33 +341,32 @@ def initialize_clients(run_mode: str) -> Tuple[GitLabClient, PrismaClient]:
             use_topic_filtering=use_topic_filtering,
             visibility=visibility,
         )
-        prisma = PrismaClient(
-            api_url=prisma_api_url,
-            access_key=prisma_access_token,
-            secret_key=prisma_secret_token,
-            integration_id=gitlab_integration_id,
-            dry_run=prisma_dry_run,
+        cortex = CortexClient(
+            api_url=cortex_api_url,
+            access_key=cortex_api_key_id,
+            secret_key=cortex_api_secret,
+            integration_id=cortex_data_source_id,
+            dry_run=run_mode == 'DRY_RUN',
             role_name_prefix=role_name_prefix,
-            ssdlc_developer_base_role_name=ssdlc_developer_base_role_name,
-            appsec_ssdlc_sa_dev_role_name=appsec_ssdlc_sa_dev_role_name,
+            default_role_name=default_role_name,
             gitlab_key=gitlab_config_key,
         )
-        logger.info("Successfully initialized GitLab, Prisma")
-        return gitlab, prisma
+        logger.info("Successfully initialized GitLab and Cortex Cloud")
+        return gitlab, cortex
     except Exception as e:
         logger.error(f"Failed to initialize API clients: {e}")
         raise
 
 def main() -> None:
-    """Orchestrate GitLab-Prisma synchronization workflow.
+    """Orchestrate GitLab-Cortex synchronization workflow.
     
     Flow:
         1. Validate environment and load configuration
-        2. Initialize GitLab and Prisma clients
+        2. Initialize GitLab and Cortex clients
         3. Fetch active GitLab projects based on activity threshold
-        4. Activate repositories in Prisma Cloud integration
+        4. Select repositories in the Cortex Cloud data source
         5. Build user-to-repository mappings from GitLab
-        6. Create or update Prisma Cloud roles for users
+        6. Create or assign Cortex Cloud roles for users
         7. Summarize synchronization results
     
     Raises:
@@ -383,9 +374,9 @@ def main() -> None:
         
     Environment Variables:
         - GITLAB_TOKEN: GitLab API token (required)
-        - PRISMA_ACCESS_TOKEN: Prisma Cloud access key (required)
-        - PRISMA_SECRET_TOKEN: Prisma Cloud secret key (required)
-        - GITLAB_CONFIG_KEY: Selects GitLab URL + Prisma integration settings (required)
+        - CORTEX_API_KEY_ID: Cortex API key ID (required)
+        - CORTEX_API_SECRET: Cortex API secret (required)
+        - GITLAB_CONFIG_KEY: Selects GitLab URL + Cortex data source settings (required)
         - RUN_MODE: 'DRY_RUN' or 'LIVE' (default: DRY_RUN)
         - TOP_N_PROJECTS: Number of active projects to sync (default: 100)
         - ACTIVITY_THRESHOLD_MINUTES: Minutes to consider project active (default: 30)
@@ -395,7 +386,7 @@ def main() -> None:
     try:
         validate_environment()
         run_mode, top_n_projects, activity_threshold_minutes = get_runtime_config()
-        gitlab, prisma = initialize_clients(run_mode)
+        gitlab, cortex = initialize_clients(run_mode)
 
         projects = fetch_active_projects(
             gitlab, top_n_projects, activity_threshold_minutes, run_mode
@@ -405,19 +396,19 @@ def main() -> None:
             logger.info(SEPARATOR_LINE)
             return
 
-        prisma_intg_id = prisma.integration_id
-        prisma_repo_lookup = activate_repositories(
-            prisma, projects, prisma_intg_id
+        cortex_data_source_id = cortex.integration_id
+        cortex_repo_lookup = activate_repositories(
+            cortex, projects, cortex_data_source_id
         )
-        if not prisma_repo_lookup:
-            logger.warning("No repositories were returned from Prisma. Stopping further processing.")
+        if not cortex_repo_lookup:
+            logger.warning("No repositories were returned from Cortex. Stopping further processing.")
             logger.info(SEPARATOR_LINE)
             return
 
-        prisma_users_by_email = prisma.fetch_prisma_users_lookup(active_only=True)
-        allowed_prisma_emails = set(prisma_users_by_email.keys())
+        cortex_users_by_email = cortex.fetch_cortex_users_lookup(active_only=True)
+        allowed_cortex_emails = set(cortex_users_by_email.keys())
         logger.info(
-            f"Using {len(allowed_prisma_emails)} enabled Prisma users "
+            f"Using {len(allowed_cortex_emails)} enabled Cortex users "
             f"to filter GitLab user mapping"
         )
 
@@ -425,20 +416,20 @@ def main() -> None:
         user_repos = build_user_mapping(
             projects,
             gitlab,
-            prisma_repo_lookup,
-            allowed_prisma_emails=allowed_prisma_emails
+            cortex_repo_lookup,
+            allowed_cortex_emails=allowed_cortex_emails
         )
-        # Create or update Prisma roles for users and handle results
+        # Create or assign Cortex roles for users and handle results
         logger.info(SEPARATOR_LINE)
         logger.info("User Create/Update Role Processing")
         logger.info(SEPARATOR_LINE)
-        results = prisma.create_or_update_user_roles(user_repos)
+        results = cortex.create_or_update_user_roles(user_repos)
         sync_ok = summarize_role_sync(results, run_mode=run_mode)
         if not sync_ok:
             logger.error(SEPARATOR_LINE)
             logger.error("Pipeline failed due to unsuccessful user/role sync results!")
             sys.exit(1)
-    except (PrismaClientError, requests.exceptions.RequestException, ValueError, EnvironmentValidationError):
+    except (CortexClientError, requests.exceptions.RequestException, ValueError, EnvironmentValidationError):
         logger.exception("Expected exception in main")
         logger.error(SEPARATOR_LINE)
         logger.error("Pipeline failed due to an exception in process!")

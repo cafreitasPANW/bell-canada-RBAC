@@ -1,13 +1,13 @@
-# GitLab-Prisma Cloud Synchronization Workflow
+# GitLab-Cortex Cloud Synchronization Workflow
 
 ## Overview
 
-The `gitlabPrismaSync.py` script synchronizes GitLab projects and users with Prisma Cloud Code Security by automatically:
+The `gitlabPrismaSync.py` script synchronizes GitLab projects and users with Cortex Cloud Application Security by automatically:
 
 1. **Fetching active GitLab projects** based on activity thresholds
-2. **Activating missing repositories** in Prisma Cloud integrations
+2. **Selecting missing repositories** in Cortex Cloud data sources
 3. **Building user-to-repository mappings** from GitLab
-4. **Creating/updating Prisma Cloud roles** for users with their repository access
+4. **Creating/assigning Cortex Cloud roles** for users with their repository access
 
 ---
 
@@ -27,7 +27,7 @@ The `gitlabPrismaSync.py` script synchronizes GitLab projects and users with Pri
 │   Initialize API Clients                │
 ├─────────────────────────────────────────┤
 │   - GitLab API client                   |
-│   - Prisma Cloud API client             |
+│   - Cortex Cloud API client             |
 └────────────┬────────────────────────────┘
              │
              ▼
@@ -50,7 +50,7 @@ The `gitlabPrismaSync.py` script synchronizes GitLab projects and users with Pri
           │  │ Activate Repositories   │
           │  ├─────────────────────────┤
           │  │ - Find missing repos    │
-          │  │ - Update Prisma Cloud   │
+          │  │ - Update Cortex data source │
           │  │   integration           │
           │  │ - Update common ssdlc   │
           │  │   role                  │
@@ -77,7 +77,7 @@ The `gitlabPrismaSync.py` script synchronizes GitLab projects and users with Pri
           │          │           ▼
           │          │  ┌──────────────────┐
           │          │  │ Create/Update    │
-          │          │  │ Prisma Roles     │
+          │          │  │ Cortex Roles     │
           │          │  ├──────────────────┤
           │          │  │ - Sync user      │
           │          │  │   roles with     │
@@ -112,9 +112,9 @@ These must be set before running the script:
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `GITLAB_TOKEN` | Personal access token for GitLab API | `glpat-xxxxxxxxxxxxx` |
-| `PRISMA_ACCESS_TOKEN` | Prisma Cloud API access key | `access_key_id` |
-| `PRISMA_SECRET_TOKEN` | Prisma Cloud API secret key | `secret_key` |
-| `GITLAB_CONFIG_KEY` | Selects the GitLab/Prisma configuration entry to use | `ug-onprem-prod` |
+| `CORTEX_API_KEY_ID` | Cortex Cloud API key ID | `api_key_id` |
+| `CORTEX_API_SECRET` | Cortex Cloud API secret key | `api_secret` |
+| `GITLAB_CONFIG_KEY` | Selects the GitLab/Cortex configuration entry to use | `ug-onprem-prod` |
 
 **Note:** In CI/CD pipelines, credentials are typically provided via Vault. The selected `GITLAB_CONFIG_KEY` is resolved against the JSON config file at `config/gitlab_instances_config.json` unless overridden.
 
@@ -122,7 +122,7 @@ These must be set before running the script:
 
 ## GitLab Instance Configuration File
 
-The script loads GitLab and Prisma integration settings from:
+The script loads GitLab and Cortex data source settings from:
 
 - `config/gitlab_instances_config.json`
 
@@ -131,7 +131,7 @@ Each entry must define:
 | Field | Description |
 |-------|-------------|
 | `url` | Base GitLab host URL used to build the API URL |
-| `prisma-integration-id` | Prisma Cloud integration ID associated with that GitLab instance |
+| `cortex-data-source-id` | Cortex Cloud GitLab data source ID associated with that GitLab instance |
 | `use-topic-filtering` | If `true`, only projects tagged for Unified-Prisma processing are included |
 
 Each entry may also define:
@@ -146,13 +146,13 @@ Example:
 {
   "ug-saas-prod": {
     "url": "https://gitlab.com",
-    "prisma-integration-id": "1234",
+    "cortex-data-source-id": "1234",
     "use-topic-filtering": false,
     "visibility": "private"
   },
   "ug-onprem-prod": {
     "url": "https://gitlab.int.bell.ca",
-    "prisma-integration-id": "5678",
+    "cortex-data-source-id": "5678",
     "use-topic-filtering": true
   }
 }
@@ -167,12 +167,11 @@ Example:
 | `ACTIVITY_THRESHOLD_MINUTES` | Time window for determining project activity | `30` |
 | `LOG_LEVEL` | Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL | `INFO` |
 | `GITLAB_API_URL` | Custom GitLab API URL | `https://gitlab.int.bell.ca/api/v4` |
-| `GITLAB_INSTANCE_CONFIG_FILE` | Custom path to the GitLab/Prisma instance JSON config file | `config/gitlab_instances_config.json` |
-| `PRISMA_API_URL` | Custom Prisma Cloud API URL | `https://api.ca.prismacloud.io` |
-| `PRISMA_APPSEC_SSDLC_SA_DEV_ROLE_NAME` | Shared CI/CD role name updated with all integration repositories | `appsec-ssdlc-sa-dev` |
-| `PRISMA_HOST_URL` | Custom Prisma Cloud host URL (used to build API URL if API URL not set) | `https://api.ca.prismacloud.io` |
-| `PRISMA_ROLE_NAME_PREFIX` | Prefix used to generate per-user Prisma role names | `devex_` |
-| `PRISMA_SSDLC_DEVELOPER_BASE_ROLE_NAME` | Default base role name that is replaced with generated user role when assigned as default | `ssdlc_developer_base` |
+| `GITLAB_INSTANCE_CONFIG_FILE` | Custom path to the GitLab/Cortex instance JSON config file | `config/gitlab_instances_config.json` |
+| `CORTEX_API_URL` | Custom Cortex Cloud API URL | `https://api-yourfqdn` |
+| `CORTEX_HOST_URL` | Custom Cortex Cloud host URL used when `CORTEX_API_URL` is unset | `https://api-yourfqdn` |
+| `CORTEX_ROLE_NAME_PREFIX` | Prefix used to generate per-user Cortex role names | `devex_` |
+| `CORTEX_ROLE_COMPONENT_PERMISSIONS` | Comma-separated Cortex component permissions for generated roles | `appsec.repositories.view` |
 | `RUN_MODE` | Execution mode: `DRY_RUN` (no changes) or `LIVE` (apply changes) | `DRY_RUN` |
 | `TOP_N_PROJECTS` | Number of active projects to synchronize | `100` |
 
@@ -181,15 +180,62 @@ Example:
 ## Execution Modes
 
 ### DRY_RUN (Default)
-- Performs all operations **without applying changes**
+- Performs all Cortex write operations **without applying changes**
 - Safe for validation and testing
 - Useful for preview before going live
-- No modifications made to Prisma Cloud or GitLab
+- No modifications made to Cortex Cloud or GitLab
 
 ### LIVE
-- **Applies all changes** to Prisma Cloud
+- **Applies all changes** to Cortex Cloud
 - Creates new roles, updates existing roles, and activates repositories
 - Use with caution in production environments
+
+---
+
+## Local Testing
+
+The repository includes network-free tests for GitLab filtering and Cortex API behavior:
+
+- [tests/test_gitlab_client.py](../tests/test_gitlab_client.py) tests required topics and topic filtering.
+- [tests/test_cortex_client.py](../tests/test_cortex_client.py) tests Cortex headers, read-only lookups, repository selection payloads, role assignment payloads, and dry-run mutation protection.
+
+Run the tests from the repository root:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+The tests use mocked HTTP responses. They do not require GitLab or Cortex credentials and do not contact external services.
+
+Run syntax and configuration checks separately:
+
+```bash
+python -m py_compile gitlabPrismaSync.py client/cortex_client.py client/gitlab_client.py common/utils.py
+python -m json.tool config/gitlab_instances_config.json
+```
+
+In `DRY_RUN`, read-only Cortex POST endpoints are allowed so users and roles can be inspected:
+
+```http
+POST /public_api/v1/rbac/get_users
+POST /public_api/v1/rbac/get_roles
+```
+
+Cortex mutations remain blocked, including repository data-source updates, role creation, and user-role assignment.
+
+## Customer Validation
+
+Local tests cannot verify tenant-specific Cortex permissions, data-source IDs, repository response fields, or live role assignment. The customer should validate these steps in an isolated test environment:
+
+1. Configure the correct `cortex-data-source-id` for the GitLab instance.
+2. Confirm the Cortex API key can read users, roles, repositories, and data sources.
+3. Confirm the configured `CORTEX_ROLE_COMPONENT_PERMISSIONS` values exist in the tenant.
+4. Run with `RUN_MODE=DRY_RUN` and review the logs.
+5. Test with one repository and one non-production Cortex user.
+6. Run with `RUN_MODE=LIVE` only after the dry-run output is approved.
+7. Verify the repository selection, generated role, and user assignment in Cortex.
+
+Do not use production users or broad repository selections for the first live test.
 
 ---
 
@@ -215,20 +261,20 @@ Example:
 - Returns configured values with defaults
 
 ### `load_gitlab_instance_config()`
-- Loads GitLab and Prisma integration settings from the JSON config file
+- Loads GitLab and Cortex data source settings from the JSON config file
 - Validates entry structure and required fields
 - Raises a configuration error for missing files, invalid JSON, or incomplete entries
 
 ### `get_gitlab_config()`
 - Resolves the selected entry from `GITLAB_CONFIG_KEY`
 - Derives the GitLab API URL from the selected `url`
-- Returns the Prisma integration ID and topic-filtering mode for the selected entry
+- Returns the Cortex data source ID and topic-filtering mode for the selected entry
 
 ### `initialize_clients(run_mode)`
 - Creates GitLab API client with provided token
-- Resolves GitLab and Prisma settings from the selected config entry
-- Creates Prisma Cloud client with access/secret keys
-- Sets Prisma client to dry-run mode if `RUN_MODE=DRY_RUN`
+- Resolves GitLab and Cortex settings from the selected config entry
+- Creates the Cortex Cloud client with API key ID and secret
+- Sets the Cortex client to dry-run mode if `RUN_MODE=DRY_RUN`
 
 ### `fetch_active_projects(gitlab, top_n_projects, activity_threshold_minutes, run_mode)`
 - Queries GitLab for active projects
@@ -236,26 +282,26 @@ Example:
 - Limits results to top N projects
 - Logs count of projects found
 
-### `activate_repositories(prisma, projects, prisma_intg_id)`
-- Identifies repositories not yet in Prisma Cloud
-- Adds missing repositories to Prisma integration
-- Returns lookup table of activated repositories
+### `activate_repositories(cortex, projects, cortex_data_source_id)`
+- Identifies GitLab repositories not selected in the Cortex data source
+- Updates the Cortex data source `state` selection
+- Returns a lookup table of Cortex repository asset IDs
 - Respects `DRY_RUN` mode for preview
 
-### `build_user_mapping(projects, gitlab, prisma_repo_lookup)`
+### `build_user_mapping(projects, gitlab, cortex_repo_lookup)`
 - Extracts user information from GitLab projects
 - Maps each user to their accessible repositories
 - Uses parallel processing for performance
 - Returns dictionary of user-to-repos mappings
 
 ### `create_or_update_user_roles(user_repos)`
-- Creates new roles in Prisma Cloud for users
-- Updates existing roles with repository access
+- Creates Cortex roles with configured component permissions
+- Assigns generated roles through Cortex RBAC
 - Respects `DRY_RUN` mode for preview
 
 ### `summarize_role_sync(results)`
 - Counts successful, failed, and skipped operations
-- Logs warnings for skipped users (not found in Prisma)
+- Logs warnings for skipped users (not found in Cortex)
 - Logs errors for any failed synchronizations
 - Provides summary of sync operation completion
 
@@ -276,7 +322,7 @@ The script gracefully handles termination signals:
 
 The script handles multiple error types:
 
-- **`PrismaClientError`**: Issues with Prisma Cloud API communication
+- **`CortexClientError`**: Issues with Cortex Cloud API communication
 - **`requests.exceptions.RequestException`**: Network/HTTP errors
 - **`ValueError`**: Invalid data or parsing errors
 - **`EnvironmentValidationError`**: Missing or invalid environment variables
@@ -308,8 +354,8 @@ Logs help with:
 ### Local Development (DRY_RUN)
 ```bash
 export GITLAB_TOKEN="glpat-xxxxxxxxxxxx"
-export PRISMA_ACCESS_TOKEN="access_key"
-export PRISMA_SECRET_TOKEN="secret_key"
+export CORTEX_API_KEY_ID="api_key_id"
+export CORTEX_API_SECRET="api_secret"
 export GITLAB_CONFIG_KEY="ug-onprem-prod"
 export RUN_MODE="DRY_RUN"
 export TOP_N_PROJECTS="10"
@@ -332,9 +378,9 @@ python gitlabPrismaSync.py
 
 1. **Initialization**: Validate environment, load clients
 2. **Discovery**: Find active GitLab projects within threshold
-3. **Registration**: Activate missing repos in Prisma Cloud
+3. **Registration**: Select missing repos in the Cortex data source
 4. **Mapping**: Build user-to-repository relationships
-5. **Synchronization**: Create/update Prisma Cloud roles
+5. **Synchronization**: Create/assign Cortex Cloud roles
 6. **Reporting**: Summarize results with success/failure counts
 
 The entire process is logged for audit and troubleshooting purposes, with `DRY_RUN` mode available for safe preview before applying live changes.
@@ -342,6 +388,30 @@ The entire process is logged for audit and troubleshooting purposes, with `DRY_R
 ---
 
 ## Recent Updates
+
+### 2026-09-11
+
+- Migrated the integration from Prisma Cloud to Cortex Cloud Application Security and Platform RBAC APIs.
+- Added [client/cortex_client.py](../client/cortex_client.py) as the Cortex API client.
+- Replaced Prisma authentication with Cortex `CORTEX_API_KEY_ID` and `CORTEX_API_SECRET` headers.
+- Added Cortex data-source repository synchronization using:
+  - `GET /public_api/appsec/v1/data_source_instances`
+  - `GET /public_api/appsec/v1/repositories`
+  - `PUT /public_api/appsec/v1/data_source_instances/{id}`
+- Replaced Prisma integration IDs with `cortex-data-source-id` values in `config/gitlab_instances_config.json`.
+- Updated the orchestrator to initialize `CortexClient`, select Cortex data sources, and use Cortex error handling.
+- Added Cortex user discovery through `POST /public_api/v1/rbac/get_users`.
+- Added Cortex role discovery through `POST /public_api/v1/rbac/get_roles`.
+- Added generated per-user Cortex roles using `POST /platform/iam/v1/role` and `CORTEX_ROLE_COMPONENT_PERMISSIONS`.
+- Added Cortex user-role assignment through `POST /public_api/v1/rbac/set_user_role`.
+- Preserved GitLab project activity filtering, required `CAL_Barcode:` topics, optional `Unified-Prisma` filtering, visibility filtering, pagination, member filtering, and parallel user mapping.
+- Preserved `DRY_RUN` and `LIVE` execution modes, while allowing read-only Cortex RBAC POST requests during `DRY_RUN` and blocking mutations.
+- Added retry handling for transient Cortex responses including `429`, `500`, `502`, `503`, and `504`.
+- Added `.env` and `.env.example` using Cortex configuration names and safe dry-run defaults.
+- Added mocked, network-free tests in [tests/test_cortex_client.py](../tests/test_cortex_client.py) and [tests/test_gitlab_client.py](../tests/test_gitlab_client.py).
+- Added documentation for local testing and customer-side dry-run/live validation.
+- Removed the obsolete Prisma client implementation and updated the workspace custom agent to target GitLab-Cortex RBAC work.
+- Documented the remaining limitation: Cortex repository asset IDs are collected, but per-user SBAC repository scopes still require tenant-specific scope criteria and are not automatically applied.
 
 ### 2026-04-23
 
