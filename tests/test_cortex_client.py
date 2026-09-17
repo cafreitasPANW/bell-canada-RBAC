@@ -38,6 +38,21 @@ class CortexClientTests(unittest.TestCase):
         self.assertEqual(request.call_args.kwargs["headers"]["x-xdr-auth-id"], "key-id")
 
     @patch("client.cortex_client.requests.request")
+    def test_user_lookup_handles_reply_wrapper_and_active_status(self, request):
+        request.return_value = self.response({
+            "reply": {
+                "users": [
+                    {"user_email": "active@example.com", "status": "ACTIVE"},
+                    {"user_email": "disabled@example.com", "status": "DISABLED"},
+                ]
+            }
+        })
+
+        users = self.client.fetch_cortex_users_lookup()
+
+        self.assertEqual(list(users), ["active@example.com"])
+
+    @patch("client.cortex_client.requests.request")
     def test_dry_run_skips_role_assignment_mutation(self, request):
         assigned = self.client.set_user_role("user@example.com", "devex_user")
 

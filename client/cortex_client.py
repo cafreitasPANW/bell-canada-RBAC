@@ -216,19 +216,43 @@ class CortexClient:
         response = self._request("POST", "/public_api/v1/rbac/get_users", {"request_data": {}})
         data = self._response_data(response)
         if isinstance(data, dict):
-            return data.get("users", data.get("data", []))
+            users = data.get("users") or data.get("data")
+            if users is not None:
+                return users if isinstance(users, list) else []
+            reply = data.get("reply")
+            if isinstance(reply, dict):
+                users = reply.get("users") or reply.get("data")
+                return users if isinstance(users, list) else []
         return data if isinstance(data, list) else []
 
     def fetch_cortex_users_lookup(self, active_only: bool = True) -> dict:
         """Return Cortex users keyed by normalized email address."""
         users = self.get_all_users()
+        total_users = len(users)
         if active_only:
-            users = [user for user in users if user.get("enabled", user.get("status", "ACTIVE") == "ACTIVE")]
-        return {
+            users = [user for user in users if self._is_active_user(user)]
+        users_by_email = {
             user.get("email", user.get("user_email", "")).lower(): user
             for user in users
             if user.get("email", user.get("user_email"))
         }
+        logger.info(
+            "Cortex users: %s returned, %s active, %s with email addresses",
+            total_users,
+            len(users) if active_only else total_users,
+            len(users_by_email),
+        )
+        return users_by_email
+
+    @staticmethod
+    def _is_active_user(user: dict) -> bool:
+        enabled = user.get("enabled")
+        if isinstance(enabled, bool):
+            return enabled
+        if isinstance(enabled, str):
+            return enabled.strip().lower() in {"true", "active", "enabled"}
+        status = user.get("status") or user.get("user_status") or "ACTIVE"
+        return str(status).strip().lower() in {"active", "enabled", "true"}
 
     def get_custom_roles(self, role_names: Optional[List[str]] = None) -> list:
         if self._roles_cache is not None:
