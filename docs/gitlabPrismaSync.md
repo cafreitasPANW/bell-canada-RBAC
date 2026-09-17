@@ -190,6 +190,15 @@ Example:
 - Creates new roles, updates existing roles, and activates repositories
 - Use with caution in production environments
 
+### Cortex Data-Source Discovery Modes
+
+The synchronizer detects the configured Cortex data-source `selectionType` before updating repository selections.
+
+- For `MANUAL_SELECTION`, missing repositories may be added with a manual `state` update.
+- For auto-discovery modes such as `CURRENT_STATE_AND_FUTURE`, the synchronizer does not switch the data source to manual selection. It leaves Cortex auto-discovery unchanged and waits for Cortex to discover the repository.
+- A newly created or recently activated GitLab project may not have a Cortex repository asset immediately. Run the synchronization again after Cortex finishes discovery.
+- The synchronizer is additive; it does not remove repositories from a Cortex data source.
+
 ---
 
 ## Local Testing

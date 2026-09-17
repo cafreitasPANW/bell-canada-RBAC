@@ -89,6 +89,25 @@ class CortexClientTests(unittest.TestCase):
         self.assertEqual(request.call_args.args[0], "POST")
         self.assertTrue(request.call_args.args[1].endswith("/public_api/v1/rbac/set_user_role"))
 
+    @patch("client.cortex_client.requests.request")
+    def test_auto_discovery_does_not_switch_to_manual_selection(self, request):
+        request.side_effect = [
+            self.response({"data": [{"id": "repo-1", "name": "group/project-a"}]}),
+            self.response({"data": [{
+                "id": "data-source-id",
+                "selectionType": "CURRENT_STATE_AND_FUTURE",
+                "state": [],
+            }]}),
+        ]
+
+        lookup = self.client.activate_missing_repos_integration(
+            [{"path_with_namespace": "group/project-b"}],
+            "data-source-id",
+        )
+
+        self.assertEqual(lookup, {"group/project-a": {"id": "repo-1", "is_new": False}})
+        self.assertEqual(request.call_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

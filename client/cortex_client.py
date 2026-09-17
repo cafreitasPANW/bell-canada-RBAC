@@ -111,7 +111,13 @@ class CortexClient:
                 ):
                     time.sleep(2 ** attempt)
                     continue
-                raise CortexClientError(f"{method} {endpoint} failed: {exc}") from exc
+                response_body = ""
+                if getattr(exc, "response", None) is not None:
+                    response_body = exc.response.text[:2000]
+                detail = f"; response={response_body}" if response_body else ""
+                raise CortexClientError(
+                    f"{method} {endpoint} failed: {exc}{detail}"
+                ) from exc
         raise CortexClientError(f"{method} {endpoint} failed after retries")
 
     @staticmethod
@@ -162,6 +168,7 @@ class CortexClient:
             "all_repos": repositories,
             "integration_repos": integration_repos,
             "sources": {"cortex": len(repositories)},
+            "data_source": sources[0] if sources else {},
         }
 
     def activate_missing_repos_integration(self, projects: List[dict], cortex_intg_id: str) -> dict:
@@ -175,10 +182,21 @@ class CortexClient:
         logger.info("Cortex data source %s has %s selected repositories", cortex_intg_id, len(selected))
         logger.info("Found %s GitLab repositories not selected in Cortex", len(missing))
         if missing:
-            payload = {"selectionType": "MANUAL_SELECTION", "state": sorted(selected_names | set(missing))}
-            self._request("PUT", f"/public_api/appsec/v1/data_source_instances/{quote(cortex_intg_id, safe='')}", payload)
-            if not self.dry_run:
-                selected = list(self.get_repos(cortex_intg_id).get("integration_repos", []))
+            data_source = current.get("data_source", {})
+            selection_type = data_source.get("selectionType")
+            if selection_type != "MANUAL_SELECTION":
+                logger.warning(
+                    "Cortex data source %s has selectionType=%s; "
+                    "leaving its discovery configuration unchanged and skipping manual repository update.",
+                    cortex_intg_id,
+                    selection_type,
+                )
+                missing = []
+            else:
+                payload = {"selectionType": "MANUAL_SELECTION", "state": sorted(selected_names | set(missing))}
+                self._request("PUT", f"/public_api/appsec/v1/data_source_instances/{quote(cortex_intg_id, safe='')}", payload)
+                if not self.dry_run:
+                    selected = list(self.get_repos(cortex_intg_id).get("integration_repos", []))
         lookup = {}
         for repository in selected:
             name = self._repository_name(repository)
