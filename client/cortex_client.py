@@ -215,15 +215,28 @@ class CortexClient:
     def get_all_users(self) -> list:
         response = self._request("POST", "/public_api/v1/rbac/get_users", {"request_data": {}})
         data = self._response_data(response)
-        if isinstance(data, dict):
-            users = data.get("users") or data.get("data")
-            if users is not None:
-                return users if isinstance(users, list) else []
-            reply = data.get("reply")
-            if isinstance(reply, dict):
-                users = reply.get("users") or reply.get("data")
-                return users if isinstance(users, list) else []
-        return data if isinstance(data, list) else []
+        users = self._find_user_records(data)
+        if not users:
+            response_keys = sorted(data.keys()) if isinstance(data, dict) else []
+            logger.warning(
+                "Cortex get_users returned no user records (response keys: %s)",
+                response_keys,
+            )
+        return users
+
+    @staticmethod
+    def _find_user_records(value: Any) -> list:
+        """Extract user records from known and wrapped Cortex response shapes."""
+        if isinstance(value, list):
+            return value if all(isinstance(item, dict) for item in value) else []
+        if not isinstance(value, dict):
+            return []
+        for key in ("users", "user_list", "data", "records", "results", "reply"):
+            if key in value:
+                records = CortexClient._find_user_records(value[key])
+                if records:
+                    return records
+        return []
 
     def fetch_cortex_users_lookup(self, active_only: bool = True) -> dict:
         """Return Cortex users keyed by normalized email address."""

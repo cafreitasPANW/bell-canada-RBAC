@@ -53,6 +53,34 @@ class CortexClientTests(unittest.TestCase):
         self.assertEqual(list(users), ["active@example.com"])
 
     @patch("client.cortex_client.requests.request")
+    def test_user_lookup_handles_user_list_wrapper(self, request):
+        request.return_value = self.response({
+            "reply": {"user_list": [{"email": "active@example.com", "enabled": True}]}
+        })
+
+        users = self.client.fetch_cortex_users_lookup()
+
+        self.assertIn("active@example.com", users)
+
+    @patch("client.cortex_client.requests.request")
+    def test_user_lookup_handles_reply_list_from_public_api(self, request):
+        request.return_value = self.response({
+            "reply": [{
+                "user_email": "active@example.com",
+                "user_first_name": "Active",
+                "user_last_name": "User",
+                "role_name": "viewer",
+                "user_type": "LOCAL",
+                "groups": [],
+                "scope": [],
+            }]
+        })
+
+        users = self.client.fetch_cortex_users_lookup()
+
+        self.assertIn("active@example.com", users)
+
+    @patch("client.cortex_client.requests.request")
     def test_dry_run_skips_role_assignment_mutation(self, request):
         assigned = self.client.set_user_role("user@example.com", "devex_user")
 
