@@ -108,6 +108,36 @@ class CortexClientTests(unittest.TestCase):
         self.assertEqual(lookup, {"group/project-a": {"id": "repo-1", "is_new": False}})
         self.assertEqual(request.call_count, 2)
 
+    @patch("client.cortex_client.requests.request")
+    def test_manual_update_preserves_cortex_state_identifiers(self, request):
+        self.client.dry_run = False
+        request.side_effect = [
+            self.response({"data": [{"id": "repo-1", "name": "project-a"}]}),
+            self.response({"data": [{
+                "id": "data-source-id",
+                "selectionType": "MANUAL_SELECTION",
+                "state": ["external-project-a"],
+            }]}),
+            self.response({}),
+            self.response({"data": [{"id": "repo-1", "name": "project-a"}]}),
+            self.response({"data": [{
+                "id": "data-source-id",
+                "selectionType": "MANUAL_SELECTION",
+                "state": ["external-project-a", "group/project-b"],
+            }]}),
+        ]
+
+        self.client.activate_missing_repos_integration(
+            [{"path_with_namespace": "group/project-b"}],
+            "data-source-id",
+        )
+
+        update_call = request.call_args_list[2]
+        self.assertEqual(update_call.kwargs["json"], {
+            "selectionType": "MANUAL_SELECTION",
+            "state": ["external-project-a", "group/project-b"],
+        })
+
 
 if __name__ == "__main__":
     unittest.main()

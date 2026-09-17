@@ -169,16 +169,23 @@ class CortexClient:
             "integration_repos": integration_repos,
             "sources": {"cortex": len(repositories)},
             "data_source": sources[0] if sources else {},
+            "selected_state": selected_names,
         }
 
     def activate_missing_repos_integration(self, projects: List[dict], cortex_intg_id: str) -> dict:
         """Add GitLab project paths to an existing Cortex GitLab data source."""
         current = self.get_repos(cortex_intg_id)
         selected = list(current.get("integration_repos", []))
-        selected_names = {self._repository_name(repo) for repo in selected}
+        selected_names = {
+            name for name in current.get("selected_state", set()) if name
+        }
+        repository_names = {self._repository_name(repo) for repo in selected}
         project_names = [project.get("path_with_namespace") for project in projects]
         project_names = [name for name in project_names if name]
-        missing = [name for name in project_names if name not in selected_names]
+        missing = [
+            name for name in project_names
+            if name not in selected_names and name not in repository_names
+        ]
         logger.info("Cortex data source %s has %s selected repositories", cortex_intg_id, len(selected))
         logger.info("Found %s GitLab repositories not selected in Cortex", len(missing))
         if missing:
