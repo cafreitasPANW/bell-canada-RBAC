@@ -230,10 +230,11 @@ class CortexClient:
             if user.get("email", user.get("user_email"))
         }
 
-    def get_custom_roles(self) -> list:
+    def get_custom_roles(self, role_names: Optional[List[str]] = None) -> list:
         if self._roles_cache is not None:
             return self._roles_cache
-        response = self._request("POST", "/public_api/v1/rbac/get_roles", {"request_data": {}})
+        payload = {"request_data": {"role_names": role_names or []}}
+        response = self._request("POST", "/public_api/v1/rbac/get_roles", payload)
         data = self._response_data(response)
         roles = data.get("roles", data.get("data", [])) if isinstance(data, dict) else data
         self._roles_cache = roles if isinstance(roles, list) else []
@@ -248,7 +249,7 @@ class CortexClient:
         return role.get("role_id") or role.get("id") or ""
 
     def find_role_id_by_name(self, role_name: str, cached_roles: Optional[list] = None) -> Optional[str]:
-        for role in cached_roles if cached_roles is not None else self.get_custom_roles():
+        for role in cached_roles if cached_roles is not None else self.get_custom_roles([role_name]):
             if self._role_name(role).lower() == role_name.lower():
                 return self._role_id(role)
         return None
@@ -271,8 +272,16 @@ class CortexClient:
 
     def create_or_update_user_roles(self, user_repos: dict) -> dict:
         results = {}
-        roles = self.get_custom_roles()
+        if not user_repos:
+            logger.info("No GitLab users matched enabled Cortex users; skipping role lookup.")
+            return results
         users = self.fetch_cortex_users_lookup()
+        role_names = [
+            self._generate_role_name(user_data.get("email", ""))
+            for user_data in user_repos.values()
+            if user_data.get("email")
+        ]
+        roles = self.get_custom_roles(role_names)
         for username, user_data in user_repos.items():
             email = user_data.get("email", "")
             result = {"success": False, "reason": None, "role_id": None, "assigned": False}

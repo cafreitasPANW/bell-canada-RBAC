@@ -90,6 +90,21 @@ class CortexClientTests(unittest.TestCase):
         self.assertTrue(request.call_args.args[1].endswith("/public_api/v1/rbac/set_user_role"))
 
     @patch("client.cortex_client.requests.request")
+    def test_get_roles_includes_role_names(self, request):
+        request.return_value = self.response({"reply": {"roles": []}})
+
+        self.client.get_custom_roles(["devex_user"])
+
+        self.assertEqual(request.call_args.kwargs["json"], {
+            "request_data": {"role_names": ["devex_user"]}
+        })
+
+    def test_empty_user_mapping_skips_role_lookup(self):
+        with patch.object(self.client, "get_custom_roles") as get_roles:
+            self.assertEqual(self.client.create_or_update_user_roles({}), {})
+            get_roles.assert_not_called()
+
+    @patch("client.cortex_client.requests.request")
     def test_auto_discovery_does_not_switch_to_manual_selection(self, request):
         request.side_effect = [
             self.response({"data": [{"id": "repo-1", "name": "group/project-a"}]}),
