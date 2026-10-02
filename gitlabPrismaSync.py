@@ -41,7 +41,7 @@ import os
 import signal
 import sys
 import time
-from typing import Tuple, Any, Optional, Set, Dict
+from typing import Tuple, Any, Optional, Set, Dict, List
 
 # Third-party imports
 import requests
@@ -73,6 +73,11 @@ DEFAULT_GITLAB_INSTANCE_CONFIG_PATH = os.path.join(
     os.path.dirname(__file__),
     'config',
     'gitlab_instances_config.json',
+)
+DEFAULT_CORTEX_RBAC_CONFIG_PATH = os.path.join(
+    os.path.dirname(__file__),
+    'config',
+    'cortex_rbac_config.json',
 )
 
 def signal_handler(sig: int, frame: Any) -> None:
@@ -201,6 +206,63 @@ def get_gitlab_config() -> Tuple[str, str, bool, Optional[str], str]:
         use_topic_filtering,
         visibility,
         config_key,
+    )
+
+def load_cortex_rbac_config(config_key: str) -> Tuple[list, str, str, str]:
+    """Load editable role permissions and automatic dynamic-group settings."""
+    config_path = os.getenv(
+        'CORTEX_RBAC_CONFIG_FILE',
+        DEFAULT_CORTEX_RBAC_CONFIG_PATH,
+    )
+    try:
+        with open(config_path, 'r', encoding='utf-8') as config_file:
+            config_data = json.load(config_file)
+    except FileNotFoundError as exc:
+        raise EnvironmentValidationError(
+            f'Cortex RBAC config file not found: {config_path}'
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise EnvironmentValidationError(
+            f'Invalid JSON in Cortex RBAC config file: {config_path}'
+        ) from exc
+
+    if not isinstance(config_data, dict):
+        raise EnvironmentValidationError(
+            'Cortex RBAC config must be a JSON object'
+        )
+    permissions = config_data.get('component_permissions')
+    repository_type = config_data.get('asset_group_repository_type')
+    asset_group_prefix = config_data.get('asset_group_name_prefix')
+    role_name_prefix = config_data.get('role_name_prefix')
+    if not isinstance(permissions, list) or not permissions or any(
+        not isinstance(permission, str) or not permission.strip()
+        for permission in permissions
+    ):
+        raise EnvironmentValidationError(
+            'Cortex RBAC config component_permissions must be a non-empty list of strings'
+        )
+    permissions = list(dict.fromkeys(permission.strip() for permission in permissions))
+    if not permissions:
+        raise EnvironmentValidationError(
+            'Cortex RBAC config component_permissions must contain at least one permission'
+        )
+    if not isinstance(repository_type, str) or not repository_type.strip():
+        raise EnvironmentValidationError(
+            'Cortex RBAC config asset_group_repository_type must be a non-empty string'
+        )
+    if not isinstance(asset_group_prefix, str) or not asset_group_prefix.strip():
+        raise EnvironmentValidationError(
+            'Cortex RBAC config asset_group_name_prefix must be a non-empty string'
+        )
+    if not isinstance(role_name_prefix, str) or not role_name_prefix.strip():
+        raise EnvironmentValidationError(
+            'Cortex RBAC config role_name_prefix must be a non-empty string'
+        )
+    return (
+        permissions,
+        repository_type.strip(),
+        asset_group_prefix.strip(),
+        role_name_prefix.strip(),
     )
 
 def fetch_active_projects(
@@ -332,8 +394,13 @@ def initialize_clients(run_mode: str) -> Tuple[GitLabClient, CortexClient]:
             'CORTEX_API_URL',
             os.getenv('CORTEX_HOST_URL', 'https://api-yourfqdn')
         )
-        role_name_prefix = os.getenv('CORTEX_ROLE_NAME_PREFIX', 'devex_')
         default_role_name = os.getenv('CORTEX_DEFAULT_ROLE_NAME', '')
+        (
+            component_permissions,
+            asset_group_repository_type,
+            asset_group_name_prefix,
+            role_name_prefix,
+        ) = load_cortex_rbac_config(gitlab_config_key)
         
         gitlab = GitLabClient(
             api_url=gitlab_api_url,
@@ -350,6 +417,9 @@ def initialize_clients(run_mode: str) -> Tuple[GitLabClient, CortexClient]:
             role_name_prefix=role_name_prefix,
             default_role_name=default_role_name,
             gitlab_key=gitlab_config_key,
+            component_permissions=component_permissions,
+            asset_group_repository_type=asset_group_repository_type,
+            asset_group_name_prefix=asset_group_name_prefix,
         )
         logger.info("Successfully initialized GitLab and Cortex Cloud")
         return gitlab, cortex

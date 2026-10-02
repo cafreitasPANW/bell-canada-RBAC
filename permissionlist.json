@@ -1,0 +1,1677 @@
+{
+    "data": {
+        "rbac_permissions": [
+            {
+                "category_name": "Dashboards & Reports",
+                "sub_categories": [
+                    {
+                        "sub_category_name": null,
+                        "permissions": [
+                            {
+                                "name": "Dashboards",
+                                "view_name": "dashboard_view",
+                                "action_name": "dashboard_action",
+                                "sub_permissions": [
+                                    {
+                                        "action_name": "dashboard_create",
+                                        "name": "Create Dashboards"
+                                    },
+                                    {
+                                        "action_name": "dashboard_edit_public",
+                                        "name": "Edit Public Dashboards"
+                                    }
+                                ],
+                                "is_enable_disable": true
+                            },
+                            {
+                                "name": "Command Center Dashboards",
+                                "view_name": "dynamic_dashboard_view",
+                                "action_name": "",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Cloud Consumption Command Center",
+                                "view_name": "cloud_consumption_command_center_view",
+                                "action_name": "",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Ingestion Monitoring",
+                                "view_name": "data_visibility",
+                                "action_name": "",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Reports",
+                                "view_name": "reports_view",
+                                "action_name": "reports_action",
+                                "sub_permissions": [
+                                    {
+                                        "action_name": "report_templates_create",
+                                        "name": "Create Report Templates"
+                                    },
+                                    {
+                                        "action_name": "report_templates_edit_public",
+                                        "name": "Edit Public Report Templates"
+                                    }
+                                ],
+                                "is_enable_disable": true
+                            },
+                            {
+                                "name": "Cloud Security Command Center",
+                                "view_name": "cloudsec_dashboard_view",
+                                "action_name": "cloudsec_dashboard_edit",
+                                "sub_permissions": []
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "category_name": "Cases & Issues",
+                "sub_categories": [
+                    {
+                        "sub_category_name": null,
+                        "permissions": [
+                            {
+                                "name": "Cases and Issues",
+                                "view_name": "investigations_data.r",
+                                "action_name": "investigations_data.rw",
+                                "sub_permissions": [
+                                    {
+                                        "action_name": "set_playbook.rw",
+                                        "name": "Add Trigger Playbook"
+                                    },
+                                    {
+                                        "action_name": "create_incident.rw",
+                                        "name": "Create Case"
+                                    },
+                                    {
+                                        "action_name": "restrict_case",
+                                        "name": "Restrict Case"
+                                    }
+                                ],
+                                "permission_dependencies": {
+                                    "none": {
+                                        "dependencies": []
+                                    },
+                                    "view": {
+                                        "dependencies": [
+                                            {
+                                                "name": "playbooks.r",
+                                                "enabled": true
+                                            }
+                                        ]
+                                    },
+                                    "action": {
+                                        "dependencies": [
+                                            {
+                                                "name": "playbooks.r",
+                                                "enabled": true
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "category_name": "Investigation & Response",
+                "sub_categories": [
+                    {
+                        "sub_category_name": "Search",
+                        "permissions": [
+                            {
+                                "name": "Query Center",
+                                "view_name": "investigation_query_view",
+                                "action_name": "investigation_query_action",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Query Library",
+                                "view_name": "personal_query_library_view",
+                                "action_name": "personal_query_library_action",
+                                "sub_permissions": [
+                                    {
+                                        "action_name": "query_library_create",
+                                        "name": "Create Queries"
+                                    },
+                                    {
+                                        "action_name": "query_library_edit_public",
+                                        "name": "Edit Public Queries"
+                                    }
+                                ],
+                                "is_enable_disable": true
+                            },
+                            {
+                                "name": "Macro Library",
+                                "view_name": "macro_library_view",
+                                "action_name": "",
+                                "sub_permissions": [
+                                    {
+                                        "action_name": "macro_library_create",
+                                        "name": "Create Macro Libraries"
+                                    },
+                                    {
+                                        "action_name": "macro_library_edit_public",
+                                        "name": "Edit Public Macro Libraries"
+                                    }
+                                ],
+                                "is_enable_disable": true
+                            },
+                            {
+                                "name": "Forensics",
+                                "view_name": "forensics",
+                                "action_name": "forensics_action",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Host Insights",
+                                "view_name": "host_insights_view",
+                                "action_name": "host_insights_action",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Graph Search",
+                                "view_name": "graph_search_view",
+                                "action_name": "graph_search_action",
+                                "sub_permissions": [],
+                                "permission_dependencies": {
+                                    "none": {
+                                        "dependencies": []
+                                    },
+                                    "view": {
+                                        "dependencies": [
+                                            {
+                                                "name": "personal_query_library_view",
+                                                "enabled": true
+                                            },
+                                            {
+                                                "name": "investigation_query_view",
+                                                "enabled": true
+                                            },
+                                            {
+                                                "name": "asset_management",
+                                                "enabled": true
+                                            }
+                                        ]
+                                    },
+                                    "action": {
+                                        "dependencies": [
+                                            {
+                                                "name": "personal_query_library_view",
+                                                "enabled": true
+                                            },
+                                            {
+                                                "name": "investigation_query_view",
+                                                "enabled": true
+                                            },
+                                            {
+                                                "name": "asset_management",
+                                                "enabled": true
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "sub_category_name": "Response",
+                        "permissions": [
+                            {
+                                "name": "Action Center",
+                                "view_name": "actions_center",
+                                "action_name": "actions_center_action",
+                                "sub_permissions": [
+                                    {
+                                        "action_name": "isolate",
+                                        "name": "Isolate"
+                                    },
+                                    {
+                                        "action_name": "terminate",
+                                        "name": "Terminate Process"
+                                    },
+                                    {
+                                        "action_name": "quarantine",
+                                        "name": "Quarantine"
+                                    },
+                                    {
+                                        "action_name": "file_retrieval",
+                                        "name": "File Retrieval"
+                                    },
+                                    {
+                                        "action_name": "file_search",
+                                        "name": "File Search"
+                                    },
+                                    {
+                                        "action_name": "destroy_files",
+                                        "name": "Destroy Files"
+                                    },
+                                    {
+                                        "action_name": "hash_exceptions",
+                                        "name": "Allow List/Block List"
+                                    },
+                                    {
+                                        "action_name": "disable_response_actions_action",
+                                        "name": "Disable Response Actions"
+                                    },
+                                    {
+                                        "action_name": "remediation",
+                                        "name": "Remediation"
+                                    },
+                                    {
+                                        "action_name": "delete_quarantine",
+                                        "name": "Delete Quarantined Files"
+                                    }
+                                ]
+                            },
+                            {
+                                "name": "EDL",
+                                "view_name": "",
+                                "action_name": "edl",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Agent Scripts Library",
+                                "view_name": "script_configurations_view",
+                                "action_name": "agent_script_configurations_action",
+                                "sub_permissions": [
+                                    {
+                                        "action_name": "run_standard_script",
+                                        "name": "Run Standard Script"
+                                    },
+                                    {
+                                        "action_name": "run_high_risk_script",
+                                        "name": "Run High-Risk Script"
+                                    },
+                                    {
+                                        "action_name": "script_configurations_action",
+                                        "name": "Script Configurations"
+                                    }
+                                ]
+                            },
+                            {
+                                "name": "Live Terminal",
+                                "view_name": "",
+                                "action_name": "remote_terminal",
+                                "sub_permissions": []
+                            }
+                        ]
+                    },
+                    {
+                        "sub_category_name": "Automations",
+                        "permissions": [
+                            {
+                                "name": "Playbooks",
+                                "view_name": "playbooks.r",
+                                "action_name": "",
+                                "sub_permissions": [
+                                    {
+                                        "action_name": "playbooks_create",
+                                        "name": "Create Playbooks"
+                                    },
+                                    {
+                                        "action_name": "playbooks.rw",
+                                        "name": "Edit Public Playbooks"
+                                    },
+                                    {
+                                        "action_name": "playbooks_unlock.rwx",
+                                        "name": "Unlock"
+                                    }
+                                ],
+                                "is_enable_disable": true,
+                                "permission_dependencies": {
+                                    "none": {
+                                        "dependencies": [
+                                            {
+                                                "name": "investigations_data.r",
+                                                "enabled": false
+                                            }
+                                        ]
+                                    },
+                                    "view": {
+                                        "dependencies": [
+                                            {
+                                                "name": "scripts.r",
+                                                "enabled": true
+                                            }
+                                        ]
+                                    },
+                                    "action": {
+                                        "dependencies": [
+                                            {
+                                                "name": "scripts.r",
+                                                "enabled": true
+                                            }
+                                        ]
+                                    }
+                                }
+                            },
+                            {
+                                "name": "Jobs",
+                                "view_name": "jobs_platform.r",
+                                "action_name": "jobs_platform.rw",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Scripts",
+                                "view_name": "scripts.r",
+                                "action_name": "",
+                                "sub_permissions": [
+                                    {
+                                        "action_name": "scripts_create",
+                                        "name": "Create Scripts"
+                                    },
+                                    {
+                                        "action_name": "scripts.rw",
+                                        "name": "Edit Public Scripts"
+                                    },
+                                    {
+                                        "action_name": "scripts.rwx",
+                                        "name": "Create scripts that will run with super user"
+                                    }
+                                ],
+                                "is_enable_disable": true,
+                                "permission_dependencies": {
+                                    "none": {
+                                        "dependencies": [
+                                            {
+                                                "name": "playbooks.r",
+                                                "enabled": false
+                                            },
+                                            {
+                                                "name": "playground.rwx",
+                                                "enabled": false
+                                            }
+                                        ]
+                                    },
+                                    "view": {
+                                        "dependencies": []
+                                    },
+                                    "action": {
+                                        "dependencies": []
+                                    }
+                                }
+                            },
+                            {
+                                "name": "Playground",
+                                "view_name": "",
+                                "action_name": "playground.rwx",
+                                "sub_permissions": [],
+                                "permission_dependencies": {
+                                    "none": {
+                                        "dependencies": []
+                                    },
+                                    "view": {
+                                        "dependencies": []
+                                    },
+                                    "action": {
+                                        "dependencies": [
+                                            {
+                                                "name": "scripts.r",
+                                                "enabled": true
+                                            }
+                                        ]
+                                    }
+                                }
+                            },
+                            {
+                                "name": "Automation Exclusion Center",
+                                "view_name": "automation_exclusion.r",
+                                "action_name": "automation_exclusion.rw",
+                                "sub_permissions": []
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "category_name": "Threat Management",
+                "sub_categories": [
+                    {
+                        "sub_category_name": "Detections",
+                        "permissions": [
+                            {
+                                "name": "Rules",
+                                "view_name": "rules_view",
+                                "action_name": "rules_action",
+                                "sub_permissions": [
+                                    {
+                                        "action_name": "rules_prevention_action",
+                                        "name": "Prevention Rules"
+                                    },
+                                    {
+                                        "action_name": "wf_verdict_change",
+                                        "name": "Request WildFire Verdict Change"
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "sub_category_name": "Threat Intelligence",
+                        "permissions": [
+                            {
+                                "name": "Threat Intelligence",
+                                "view_name": "threat_intel.r",
+                                "action_name": "threat_intel.rw",
+                                "sub_permissions": []
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "category_name": "Apps",
+                "sub_categories": [
+                    {
+                        "sub_category_name": null,
+                        "permissions": [
+                            {
+                                "name": "Jupyter",
+                                "view_name": "",
+                                "action_name": "jupyter_action",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Observability",
+                                "view_name": "",
+                                "action_name": "observability_action",
+                                "sub_permissions": []
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "category_name": "Inventory",
+                "sub_categories": [
+                    {
+                        "sub_category_name": "Assets",
+                        "permissions": [
+                            {
+                                "name": "Network Configuration",
+                                "view_name": "network_configuration_view",
+                                "action_name": "network_configuration",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Compliance",
+                                "view_name": "compliance",
+                                "action_name": "",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Asset Inventory",
+                                "view_name": "asset_management",
+                                "action_name": "asset_management_action",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Asset Roles Configuration",
+                                "view_name": "asset_roles_configuration_view",
+                                "action_name": "asset_roles_configuration_action",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Asset Groups",
+                                "view_name": "asset_groups",
+                                "action_name": "asset_groups_action",
+                                "sub_permissions": []
+                            }
+                        ]
+                    },
+                    {
+                        "sub_category_name": "Agents",
+                        "permissions": [
+                            {
+                                "name": "Agent Administrations",
+                                "view_name": "agent_management_view",
+                                "action_name": "endpoint_administrations_action",
+                                "sub_permissions": [
+                                    {
+                                        "action_name": "agent_management_action",
+                                        "name": "Agent Management"
+                                    },
+                                    {
+                                        "action_name": "tsf_retrieval",
+                                        "name": "Retrieve Agent Data"
+                                    },
+                                    {
+                                        "action_name": "host_scan",
+                                        "name": "Agent Scan"
+                                    },
+                                    {
+                                        "action_name": "manage_server",
+                                        "name": "Change Managing Server"
+                                    },
+                                    {
+                                        "action_name": "pause_endpoint_protection",
+                                        "name": "Pause Protection"
+                                    },
+                                    {
+                                        "action_name": "agent_token",
+                                        "name": "Agent Token Management"
+                                    }
+                                ]
+                            },
+                            {
+                                "name": "Agent Groups",
+                                "view_name": "agent_groups_view",
+                                "action_name": "agent_groups_action",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Agent Prevention Policies",
+                                "view_name": "policies_view",
+                                "action_name": "policies_action",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Global Exceptions",
+                                "view_name": "global_exceptions_view",
+                                "action_name": "global_exceptions_action",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Agent Profiles",
+                                "view_name": "profiles_view",
+                                "action_name": "profiles_action",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Agent Extension Policies",
+                                "view_name": "extension_policy_view",
+                                "action_name": "extension_policy_action",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Agent Installations",
+                                "view_name": "agent_installations_view",
+                                "action_name": "agent_installations_action",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Host Firewall",
+                                "view_name": "host_firewall",
+                                "action_name": "host_firewall_action",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Device Control",
+                                "view_name": "device_control",
+                                "action_name": "device_control_actions",
+                                "sub_permissions": [
+                                    {
+                                        "action_name": "device_control_action",
+                                        "name": "Device Control Rules"
+                                    },
+                                    {
+                                        "action_name": "device_control_exception_action",
+                                        "name": "Device Control Exceptions"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "category_name": "Marketplace",
+                "sub_categories": [
+                    {
+                        "sub_category_name": null,
+                        "permissions": [
+                            {
+                                "name": "Browse",
+                                "view_name": "marketplaceView.rw",
+                                "action_name": "marketplaceInstall.rw",
+                                "sub_permissions": []
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "category_name": "Exceptions Configuration",
+                "sub_categories": [
+                    {
+                        "sub_category_name": null,
+                        "permissions": [
+                            {
+                                "name": "Issue Exclusions",
+                                "view_name": "issue_exclusions_view",
+                                "action_name": "issue_exclusions_action",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Exception Management Admin",
+                                "view_name": "exception_management_admin_view",
+                                "action_name": "exception_management_admin_action",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Exception Approver Admin",
+                                "view_name": "exception_approver_view",
+                                "action_name": "exception_approver_action",
+                                "sub_permissions": []
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "category_name": "Configurations",
+                "sub_categories": [
+                    {
+                        "sub_category_name": "General Setting",
+                        "permissions": [
+                            {
+                                "name": "Auditing",
+                                "view_name": "audit",
+                                "action_name": "",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Alert Notifications",
+                                "view_name": "alert_notifications",
+                                "action_name": "alert_notifications_action",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "General Configuration",
+                                "view_name": "general_config_view",
+                                "action_name": "general_config_action",
+                                "sub_permissions": []
+                            }
+                        ]
+                    },
+                    {
+                        "sub_category_name": "Cortex XDR - analytics",
+                        "permissions": [
+                            {
+                                "name": "On-demand Analytics",
+                                "view_name": "on_demand_analytics",
+                                "action_name": "on_demand_analytics_action",
+                                "sub_permissions": []
+                            }
+                        ]
+                    },
+                    {
+                        "sub_category_name": "Access Management",
+                        "permissions": [
+                            {
+                                "name": "Access Management",
+                                "view_name": "access_management_view",
+                                "action_name": "access_management_action",
+                                "sub_permissions": []
+                            }
+                        ]
+                    },
+                    {
+                        "sub_category_name": "Data Broker",
+                        "permissions": [
+                            {
+                                "name": "Broker Service",
+                                "view_name": "broker_view",
+                                "action_name": "broker_action",
+                                "sub_permissions": []
+                            }
+                        ]
+                    },
+                    {
+                        "sub_category_name": "Data Collection",
+                        "permissions": [
+                            {
+                                "name": "Log Collections",
+                                "view_name": "saas_collection",
+                                "action_name": "saas_collection_action",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Data Sources",
+                                "view_name": "data_sources",
+                                "action_name": "data_sources_action",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "External Issues Mapping",
+                                "view_name": "external_alerts",
+                                "action_name": "external_alerts_action",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Integrations",
+                                "view_name": "settings_integrations.r",
+                                "action_name": "settings_integrations.rw",
+                                "sub_permissions": []
+                            }
+                        ]
+                    },
+                    {
+                        "sub_category_name": "Data Management",
+                        "permissions": [
+                            {
+                                "name": "Data Management",
+                                "view_name": "",
+                                "action_name": "data_management_action",
+                                "sub_permissions": []
+                            }
+                        ]
+                    },
+                    {
+                        "sub_category_name": "Integrations",
+                        "permissions": [
+                            {
+                                "name": "Public API",
+                                "view_name": "public_apis",
+                                "action_name": "public_apis_action",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Threat Intelligence",
+                                "view_name": "threat_intel",
+                                "action_name": "threat_intel_action",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Long Running HTTP Integrations configuration",
+                                "view_name": "edl_configuration",
+                                "action_name": "edl_configuration_action",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Integrations Permissions",
+                                "view_name": "settings_integrations_permission.r",
+                                "action_name": "settings_integrations_permission.rw",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Credentials",
+                                "view_name": "settings_credentials.r",
+                                "action_name": "settings_credentials.rw",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Manage Vulnerabilities",
+                                "view_name": "",
+                                "action_name": "manage_vulnerabilities_action",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Network Scanners",
+                                "view_name": "network_scanners_view",
+                                "action_name": "network_scanners_action",
+                                "sub_permissions": []
+                            }
+                        ]
+                    },
+                    {
+                        "sub_category_name": null,
+                        "permissions": [
+                            {
+                                "name": "Apps",
+                                "view_name": "application_hub_view",
+                                "action_name": "application_hub_action",
+                                "sub_permissions": []
+                            }
+                        ]
+                    },
+                    {
+                        "sub_category_name": "Object Setup",
+                        "permissions": [
+                            {
+                                "name": "Case Properties",
+                                "view_name": "incident_properties_view",
+                                "action_name": "incident_properties_action",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Exclusion List",
+                                "view_name": "exclusion_list.r",
+                                "action_name": "exclusion_list.rw",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Fields and Types",
+                                "view_name": "objectSetupEditFieldsAndTypes.r",
+                                "action_name": "objectSetupEditFieldsAndTypes.rwx",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Layouts",
+                                "view_name": "objectSetupEditLayouts.r",
+                                "action_name": "objectSetupEditLayouts.rwx",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Sync Profile",
+                                "view_name": "sync_profile_view",
+                                "action_name": "sync_profile_edit",
+                                "sub_permissions": []
+                            }
+                        ]
+                    },
+                    {
+                        "sub_category_name": "Identity Security",
+                        "permissions": [
+                            {
+                                "name": "Trusted Entities",
+                                "view_name": "trusted_entities_view",
+                                "action_name": "trusted_entities_edit",
+                                "sub_permissions": []
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "category_name": "Help",
+                "sub_categories": [
+                    {
+                        "sub_category_name": null,
+                        "permissions": [
+                            {
+                                "name": "Support",
+                                "view_name": "",
+                                "action_name": "support_action",
+                                "sub_permissions": []
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "category_name": "CLI Tools",
+                "sub_categories": [
+                    {
+                        "sub_category_name": null,
+                        "permissions": [
+                            {
+                                "name": "CLI Tool",
+                                "view_name": "ci_tool_view",
+                                "action_name": "ci_tool_edit",
+                                "sub_permissions": []
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "category_name": "Policies",
+                "sub_categories": [
+                    {
+                        "sub_category_name": "Compute Policies",
+                        "permissions": [
+                            {
+                                "name": "Compute Policies",
+                                "view_name": "cwp_policies_view",
+                                "action_name": "cwp_policies_edit",
+                                "sub_permissions": []
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "category_name": "Cloudsec",
+                "sub_categories": [
+                    {
+                        "sub_category_name": null,
+                        "permissions": [
+                            {
+                                "name": "Rules",
+                                "view_name": "cloudsec_rules_view",
+                                "action_name": "cloudsec_rules_edit",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Policies",
+                                "view_name": "cloudsec_policies_view",
+                                "action_name": "cloudsec_policies_edit",
+                                "sub_permissions": []
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "category_name": "Application Security",
+                "sub_categories": [
+                    {
+                        "sub_category_name": null,
+                        "permissions": [
+                            {
+                                "name": "Configurations",
+                                "view_name": "",
+                                "action_name": "prisma_webhooks",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Issues",
+                                "view_name": "app_sec_issues_view",
+                                "action_name": "app_sec_issues_edit",
+                                "sub_permissions": []
+                            }
+                        ]
+                    },
+                    {
+                        "sub_category_name": "AppSec Collector",
+                        "permissions": [
+                            {
+                                "name": "Generic Collector",
+                                "view_name": "",
+                                "action_name": "generic_collector",
+                                "sub_permissions": []
+                            }
+                        ]
+                    },
+                    {
+                        "sub_category_name": "Scans",
+                        "permissions": [
+                            {
+                                "name": "Periodic",
+                                "view_name": "app_sec_scans_periodic_view",
+                                "action_name": "app_sec_scans_periodic_edit",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "PR Scans",
+                                "view_name": "app_sec_scans_pr_view",
+                                "action_name": "app_sec_scans_pr_edit",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "CI CD Scans",
+                                "view_name": "app_sec_scans_ci_cd_view",
+                                "action_name": "app_sec_scans_ci_cd_edit",
+                                "sub_permissions": []
+                            }
+                        ]
+                    },
+                    {
+                        "sub_category_name": "Policy Management",
+                        "permissions": [
+                            {
+                                "name": "AppSec Rules",
+                                "view_name": "app_sec_detection_rules_view",
+                                "action_name": "app_sec_detection_rules_edit",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "AppSec Policies",
+                                "view_name": "app_sec_policies_view",
+                                "action_name": "app_sec_policies_edit",
+                                "sub_permissions": []
+                            }
+                        ]
+                    },
+                    {
+                        "sub_category_name": "3rd Party Tools",
+                        "permissions": [
+                            {
+                                "name": "Supply Chain Tools",
+                                "view_name": "app_sec_supply_chain_tools_view",
+                                "action_name": "app_sec_supply_chain_tools_edit",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Supply Chain Catalog",
+                                "view_name": "app_sec_catalog_tools_view",
+                                "action_name": "app_sec_catalog_tools_edit",
+                                "sub_permissions": []
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "category_name": "Attack Surface",
+                "sub_categories": [
+                    {
+                        "sub_category_name": null,
+                        "permissions": [
+                            {
+                                "name": "Attack Surface Rules",
+                                "view_name": "attack_surface_rules_view",
+                                "action_name": "attack_surface_rules_action",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Vulnerability Testing",
+                                "view_name": "vulnerability_testing_view",
+                                "action_name": "vulnerability_testing_action",
+                                "sub_permissions": []
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "category_name": "Vulnerability Management",
+                "sub_categories": [
+                    {
+                        "sub_category_name": null,
+                        "permissions": [
+                            {
+                                "name": "Vulnerability Management",
+                                "view_name": "vulnerability_management_view",
+                                "action_name": "vulnerability_management_action",
+                                "sub_permissions": []
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "category_name": "Exposure Management",
+                "sub_categories": [
+                    {
+                        "sub_category_name": null,
+                        "permissions": [
+                            {
+                                "name": "Exposure Management",
+                                "view_name": "exposure_management_view",
+                                "action_name": "exposure_management_action",
+                                "sub_permissions": []
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "category_name": "Compliance",
+                "sub_categories": [
+                    {
+                        "sub_category_name": null,
+                        "permissions": [
+                            {
+                                "name": "Catalog and Assessment Profiles",
+                                "view_name": "platform_compliance_view",
+                                "action_name": "platform_compliance_edit",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Reports",
+                                "view_name": "platform_compliance_report_view",
+                                "action_name": "platform_compliance_report_edit",
+                                "sub_permissions": []
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "category_name": "Data Security",
+                "sub_categories": [
+                    {
+                        "sub_category_name": null,
+                        "permissions": [
+                            {
+                                "name": "Data-in-motion Rules",
+                                "view_name": "data_in_motion_rules_view",
+                                "action_name": "data_in_motion_rules_edit",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Endpoint Applications",
+                                "view_name": "endpoint_applications_view",
+                                "action_name": "endpoint_applications_edit",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Endpoint Applications Groups",
+                                "view_name": "endpoint_applications_groups_view",
+                                "action_name": "endpoint_applications_groups_edit",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Endpoint DLP Settings",
+                                "view_name": "endpoint_dlp_settings_view",
+                                "action_name": "endpoint_dlp_settings_edit",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Data Security",
+                                "view_name": "dspm_security_module_view",
+                                "action_name": "dspm_security_module_edit",
+                                "sub_permissions": []
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "category_name": "Data Classification",
+                "sub_categories": [
+                    {
+                        "sub_category_name": null,
+                        "permissions": [
+                            {
+                                "name": "Data Classification",
+                                "view_name": "data_classification_view",
+                                "action_name": "data_classification_edit",
+                                "sub_permissions": []
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "category_name": "AI Security",
+                "sub_categories": [
+                    {
+                        "sub_category_name": null,
+                        "permissions": [
+                            {
+                                "name": "AI Security",
+                                "view_name": "aispm_security_module_view",
+                                "action_name": "aispm_security_module_edit",
+                                "sub_permissions": []
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "category_name": "Identity Security",
+                "sub_categories": [
+                    {
+                        "sub_category_name": null,
+                        "permissions": [
+                            {
+                                "name": "Identity Security",
+                                "view_name": "ciem_identity_security_module_view",
+                                "action_name": "ciem_identity_security_module_edit",
+                                "sub_permissions": []
+                            }
+                        ]
+                    },
+                    {
+                        "sub_category_name": "Runtime",
+                        "permissions": [
+                            {
+                                "name": "Conditional Access Policy",
+                                "view_name": "itdr_cap_policy_view",
+                                "action_name": "itdr_cap_policy_edit",
+                                "sub_permissions": []
+                            },
+                            {
+                                "name": "Identity Security Runtime",
+                                "view_name": "identity_security_runtime_view",
+                                "action_name": "identity_security_runtime_edit",
+                                "sub_permissions": []
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "category_name": "Cortex Agentic Assistant",
+                "sub_categories": [
+                    {
+                        "sub_category_name": null,
+                        "permissions": [
+                            {
+                                "name": "Agents",
+                                "view_name": "",
+                                "action_name": "agentix_agents_action",
+                                "sub_permissions": [
+                                    {
+                                        "action_name": "agentix_agents_action_run",
+                                        "name": "Interact with agents"
+                                    },
+                                    {
+                                        "action_name": "agentix_agents_action_manage_actions",
+                                        "name": "Manage actions"
+                                    },
+                                    {
+                                        "action_name": "agentix_agents_action_manage",
+                                        "name": "Manage agents"
+                                    },
+                                    {
+                                        "action_name": "agentix_agents_action_admin",
+                                        "name": "Agents admin"
+                                    }
+                                ]
+                            },
+                            {
+                                "name": "AI Prompts",
+                                "view_name": "prompts_library_view",
+                                "action_name": "",
+                                "sub_permissions": [
+                                    {
+                                        "action_name": "prompts_library_action",
+                                        "name": "Manage prompts library"
+                                    },
+                                    {
+                                        "action_name": "prompts_library_manage_inline",
+                                        "name": "Manage prompts in playbook editor"
+                                    }
+                                ],
+                                "is_enable_disable": true
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+        "datasetGroups": [
+            {
+                "datasets": [
+                    "active_directory_group_membership_lookup",
+                    "agentix_agents_actions",
+                    "ai_packages",
+                    "ai_packages_metadata",
+                    "alerts",
+                    "asset_groups",
+                    "asset_inventory",
+                    "auth_logs",
+                    "cas_criteria",
+                    "cas_issues_xql_view",
+                    "cas_issues_xql_with_sbac_view",
+                    "cas_policies",
+                    "cas_supply_chain_tools",
+                    "case_to_issue",
+                    "cases",
+                    "ciem_aws_access_analyzer_findings",
+                    "ciem_permissions_with_last_access",
+                    "classification_mgmt_data_pattern",
+                    "classification_mgmt_data_profile",
+                    "classification_mgmt_data_topic",
+                    "cloud_audit_logs",
+                    "cloud_health_auditing",
+                    "collection_auditing",
+                    "compiled_risk",
+                    "data_ingestion_health",
+                    "dspm_asset_data_patterns",
+                    "dspm_asset_data_profiles",
+                    "dspm_asset_data_topics",
+                    "dspm_asset_field_inventory",
+                    "dspm_asset_file_inventory",
+                    "dspm_asset_message_inventory",
+                    "dspm_asset_metadata",
+                    "dspm_asset_table_inventory",
+                    "email_data",
+                    "endpoints",
+                    "event_forwarding_errors",
+                    "external_services",
+                    "findings",
+                    "findings_revisions",
+                    "forensics_amcache",
+                    "forensics_anydesk_connection_logs",
+                    "forensics_anydesk_trace_logs",
+                    "forensics_apple_unified_logs",
+                    "forensics_application_resource_usage",
+                    "forensics_archive_history",
+                    "forensics_arp_cache",
+                    "forensics_auditd",
+                    "forensics_authorized_keys",
+                    "forensics_background_activity_monitor",
+                    "forensics_bodyfile",
+                    "forensics_chrome_history",
+                    "forensics_cid_size_mru",
+                    "forensics_command_history",
+                    "forensics_config",
+                    "forensics_core_analytics",
+                    "forensics_cron",
+                    "forensics_dns_cache",
+                    "forensics_drivers",
+                    "forensics_edge_anaheim_history",
+                    "forensics_edge_spartan_history",
+                    "forensics_env",
+                    "forensics_etc",
+                    "forensics_event_log",
+                    "forensics_file_access",
+                    "forensics_file_listing",
+                    "forensics_firefox_history",
+                    "forensics_handles",
+                    "forensics_hosts_file",
+                    "forensics_internet_explorer_history",
+                    "forensics_jumplist",
+                    "forensics_known_hosts",
+                    "forensics_last",
+                    "forensics_last_visited_pidl_mru",
+                    "forensics_lastb",
+                    "forensics_launchd",
+                    "forensics_log_me_in",
+                    "forensics_login_items",
+                    "forensics_lsof",
+                    "forensics_modinfo",
+                    "forensics_mount",
+                    "forensics_net_sessions",
+                    "forensics_netstat",
+                    "forensics_network",
+                    "forensics_network_connectivity_usage",
+                    "forensics_network_data",
+                    "forensics_network_data_usage",
+                    "forensics_open_save_pidl_mru",
+                    "forensics_persistence",
+                    "forensics_port_listing",
+                    "forensics_prefetch",
+                    "forensics_process_execution",
+                    "forensics_process_listing",
+                    "forensics_process_listing_linux",
+                    "forensics_psreadline",
+                    "forensics_quarantine_downloads",
+                    "forensics_recent_applications",
+                    "forensics_recent_documents",
+                    "forensics_recent_files",
+                    "forensics_recent_places",
+                    "forensics_recentfilecache",
+                    "forensics_recycle_bin",
+                    "forensics_registry",
+                    "forensics_registry_persistence",
+                    "forensics_remote_access",
+                    "forensics_safari_history",
+                    "forensics_scheduled_tasks",
+                    "forensics_services",
+                    "forensics_seven_zip_folder_history",
+                    "forensics_shell_history",
+                    "forensics_shell_history_linux",
+                    "forensics_shellbags",
+                    "forensics_shim_databases",
+                    "forensics_shimcache",
+                    "forensics_spotlight_shortcuts",
+                    "forensics_startup_folder",
+                    "forensics_sudo_log",
+                    "forensics_syslog",
+                    "forensics_systemctl",
+                    "forensics_systemd",
+                    "forensics_team_viewer",
+                    "forensics_typed_paths",
+                    "forensics_ufw",
+                    "forensics_uname",
+                    "forensics_user_access_logging",
+                    "forensics_user_assist",
+                    "forensics_verdicts",
+                    "forensics_web_history",
+                    "forensics_windows_activities",
+                    "forensics_winrar_arc_history",
+                    "forensics_wmi",
+                    "forensics_word_wheel_query",
+                    "host_firewall_events",
+                    "host_inventory",
+                    "host_users_to_groups",
+                    "incidents",
+                    "incidents_artifacts",
+                    "incidents_assets",
+                    "indicator_relationship",
+                    "indicators",
+                    "internal_auditing",
+                    "issue_to_asset",
+                    "issue_to_finding",
+                    "issue_to_indicator",
+                    "issues",
+                    "it_metrics",
+                    "login_logs",
+                    "managed_services_events",
+                    "metrics_center",
+                    "metrics_source",
+                    "pan_dss_raw",
+                    "playbook_runs",
+                    "playbook_tasks",
+                    "prompt_logs",
+                    "saas_audit_logs",
+                    "scans_management",
+                    "scripts_and_commands_metrics",
+                    "threat_intel_indicators",
+                    "threat_intel_malware",
+                    "threat_intel_relationships",
+                    "threat_intel_threat_actors",
+                    "uvm_findings",
+                    "va_cves",
+                    "va_endpoints",
+                    "virtualization_data",
+                    "vpn_logs",
+                    "xdr_data",
+                    "xdr_dhcp",
+                    "xdr_yara_scan_data",
+                    "xql_query_center_history"
+                ],
+                "dataset_category": "System"
+            },
+            {
+                "datasets": [
+                    "a",
+                    "ady_test_data",
+                    "anrch_test",
+                    "athlete_events",
+                    "attack_path_issues_livecommunity_mdalbes",
+                    "attack_path_issues_mdalbes",
+                    "attack_path_issues_mdalbes_friday",
+                    "aws_inspector_sample_1200_rows",
+                    "azure_defender_sample_1200_rows",
+                    "bpachauli_fm_serverless",
+                    "csp_members",
+                    "custom_alert_exclusions_juan",
+                    "custom_users_dataset",
+                    "demo_secret_info",
+                    "edu_sample_data",
+                    "endpoint_inventory",
+                    "featured_user",
+                    "fm_bank_raw",
+                    "group_names_mapping",
+                    "high_priority_windows_assets",
+                    "high_priority_windows_assets_2",
+                    "iron_port_ip",
+                    "jjc_sample_dataset",
+                    "jp_manual_test_lookup",
+                    "jp_test_lookup",
+                    "jp_test_lookup2",
+                    "jp_testing_ds_schema",
+                    "k8s_controls_to_standards",
+                    "k8s_lookup",
+                    "kr_sim_case_lookup",
+                    "kr_test_lookup_for_size",
+                    "lookup_array_test",
+                    "lookup_test_manual",
+                    "pci_account_mapping",
+                    "pci_account_mapping2",
+                    "pci_exceptions",
+                    "pci_jira_automation_audit2",
+                    "pci_jira_automation_audit3",
+                    "pci_jira_automation_audit3_2",
+                    "playbook_cve_severity_by_assets",
+                    "playbook_recommendations_juan",
+                    "random_name",
+                    "rqlxqlconversion",
+                    "sampledata",
+                    "sha1_hulud",
+                    "tenableio_vulnerabilities_1000_rows",
+                    "test_append_endpoint_lookup",
+                    "test_lookup_api",
+                    "test_previous_ep",
+                    "test_users",
+                    "testing",
+                    "testms1",
+                    "things",
+                    "tunde_dataset",
+                    "users",
+                    "velo_lookup",
+                    "vuln_scan",
+                    "xsiam_consumption_data_test",
+                    "xsiam_users_10",
+                    "xsiam_users_2",
+                    "xsiam_users_3",
+                    "xsiam_users_6",
+                    "xsiam_users_7",
+                    "xsiam_users_8",
+                    "xsiam_users_9",
+                    "xsiam_users_lookup",
+                    "zs1_group"
+                ],
+                "dataset_category": "Lookup"
+            },
+            {
+                "datasets": [
+                    "a10_thunder_raw",
+                    "amazon_aws_raw",
+                    "amazon_route53_raw",
+                    "apache_json_musinsa_demo_raw",
+                    "apache_musinsa_demo_raw",
+                    "apisec_http_grouped_transactions_raw",
+                    "audit_fm_raw",
+                    "aws_guardduty_raw",
+                    "bn_forigate_forigate_raw",
+                    "bn_juniper_router_raw",
+                    "bonusly_generic_alert_raw",
+                    "ciem_permissions_creation_time_raw",
+                    "ciphercraft_ccmailsignature_raw",
+                    "ciphercraft_operation_raw",
+                    "cisco_asa_raw",
+                    "cisco_viptela_raw",
+                    "connor_test_connor_test_raw",
+                    "container_info_raw",
+                    "cortex_compliance_controls_summary_raw",
+                    "cortex_compliance_controls_summary_raw_raw",
+                    "cortex_compliance_cortex_compliance_raw",
+                    "cortex_compliance_enriched_assets_raw",
+                    "cortex_compliance_enriched_assets_raw_raw",
+                    "cortex_xdr_ir_generic_alert_raw",
+                    "cribl_microsoft_dns_raw",
+                    "cwp_detonation_match_raw",
+                    "cwp_detonation_silenced_rule_raw",
+                    "cwp_detonation_wildfire_upload_raw",
+                    "cwp_packages_raw",
+                    "cyphercraft_ccmail_raw",
+                    "dan_barr_raw",
+                    "dell_vep_raw",
+                    "demo_vendor_demo_product_raw",
+                    "dewr_compliance_raw",
+                    "digitalarts_ifilter_raw",
+                    "fakestore_api_raw",
+                    "filestream_filestream_raw",
+                    "fm_apii_raw",
+                    "fm_cisco_asa_raw",
+                    "fm_velo1_raw",
+                    "fm_velo_raw",
+                    "fm_vp_raw",
+                    "fmcisco1_asa1_raw",
+                    "fmcisco1_isr_raw",
+                    "fmcisco_asr_raw",
+                    "fmcisco_ftd_raw",
+                    "fmcisco_isr_raw",
+                    "fmcustom_onpremapi_raw",
+                    "fmlinux_linux_raw",
+                    "fortinet_forigate_sim_raw",
+                    "fortinet_fortigate_sim_raw",
+                    "generic_webhook_generic_alert_raw",
+                    "google_cloud_logging_raw",
+                    "hello_world_raw",
+                    "itau_iam_logs_raw",
+                    "japan_ps_brokervm_rhel_samplelog_raw",
+                    "japan_ps_win_samplelog_raw",
+                    "jira_v3_generic_alert_raw",
+                    "jp_http_raw",
+                    "jp_syslog6_raw",
+                    "jp_syslog_raw",
+                    "jp_test_raw",
+                    "jsonsampleincidentgenerator_generic_alert_raw",
+                    "juniper_router_raw",
+                    "juniper_switch_raw",
+                    "koi_koi_raw",
+                    "linux_linux_raw",
+                    "linux_syslog_ng_raw",
+                    "manual_generic_alert_raw",
+                    "mclayton2_assets_raw",
+                    "mclayton2_compliance_raw",
+                    "mclayton_compliance_raw",
+                    "microsoft_windows_raw",
+                    "mikrotik_hap_lite_raw",
+                    "mk_http_raw",
+                    "ms_test1_raw",
+                    "msft_azure_raw",
+                    "oracle_oci_raw",
+                    "panw_cortex_xdr_raw",
+                    "rx_http_raw",
+                    "scadafence_scadafence_portal_raw",
+                    "servicenow_v2_generic_alert_raw",
+                    "solaris_dhcp_raw",
+                    "tbailey_test1_raw",
+                    "tbailey_test2_raw",
+                    "tbailey_test_raw",
+                    "tesms1",
+                    "testms2",
+                    "unknown_unknown_raw",
+                    "velocloud_sdwan_raw",
+                    "xsiam_instance_fetching_raw",
+                    "xsiam_user_raw"
+                ],
+                "dataset_category": "Raw"
+            },
+            {
+                "datasets": [
+                    "am_test_dataset",
+                    "autohunt_staged_indicators_iran",
+                    "cloud_account_snapshots",
+                    "cloud_issues_history",
+                    "daily_data_source_metrics",
+                    "fm_targetVIPtela_raw",
+                    "foo_bar3",
+                    "github_collab_lookup",
+                    "indicator_for_correlation",
+                    "internet_exposed_assets",
+                    "jt",
+                    "jt2",
+                    "jupyter_dataset_test",
+                    "license_forecast_history",
+                    "musinsa_demo_raw",
+                    "owasp_compliance_dataset",
+                    "pci_jira_automation_audit",
+                    "repos_collab_lookup",
+                    "test_jupyter",
+                    "vm_instance_count",
+                    "zs_data_set"
+                ],
+                "dataset_category": "User"
+            },
+            {
+                "datasets": [],
+                "dataset_category": "Live Aggregation"
+            },
+            {
+                "datasets": [
+                    "ciem_permissions_raw"
+                ],
+                "dataset_category": "Snapshot"
+            },
+            {
+                "datasets": [
+                    "zl_coverage_history",
+                    "zl_scan_failures_daily",
+                    "zl_scan_progress_hourly",
+                    "zl_scan_slo_daily"
+                ],
+                "dataset_category": "Correlation"
+            },
+            {
+                "datasets": [
+                    "agent_auditing",
+                    "collector_auditing",
+                    "correlations_auditing",
+                    "management_auditing",
+                    "parsing_rules_errors"
+                ],
+                "dataset_category": "System Audit"
+            },
+            {
+                "datasets": [
+                    "bpachauli_test_dataset",
+                    "dbarrera_test",
+                    "dspier_v1",
+                    "test",
+                    "texasdan"
+                ],
+                "dataset_category": "Dataset View"
+            },
+            {
+                "datasets": [],
+                "dataset_category": "External"
+            }
+        ]
+    }
+}

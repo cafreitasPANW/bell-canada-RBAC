@@ -133,6 +133,62 @@ class CortexClientTests(unittest.TestCase):
         self.assertTrue(request.call_args.args[1].endswith("/public_api/v1/rbac/set_user_role"))
 
     @patch("client.cortex_client.requests.request")
+    def test_user_asset_scope_uses_cortex_scope_schema(self, request):
+        client = CortexClient(
+            api_url="https://cortex.example.test",
+            access_key="key-id",
+            secret_key="secret",
+            integration_id="data-source-id",
+            dry_run=False,
+        )
+        request.return_value = self.response({"data": {"message": "ok"}})
+
+        client.update_user_asset_scope("user@example.com", [101, 202])
+
+        self.assertEqual(request.call_args.args[0], "PUT")
+        self.assertEqual(
+            request.call_args.args[1],
+            "https://cortex.example.test/platform/iam/v1/scope/user/user%40example.com",
+        )
+        self.assertEqual(request.call_args.kwargs["json"], {
+            "request_data": {
+                "assets": {
+                    "mode": "scope",
+                    "asset_group_ids": [101, 202],
+                }
+            }
+        })
+
+    @patch("client.cortex_client.requests.request")
+    def test_role_creation_uses_configured_permissions(self, request):
+        client = CortexClient(
+            api_url="https://cortex.example.test",
+            access_key="key-id",
+            secret_key="secret",
+            integration_id="data-source-id",
+            dry_run=False,
+            component_permissions=["app_sec_issues_view", "app_sec_scans_ci_cd_view"],
+        )
+        request.side_effect = [
+            self.response({"data": {"message": "created"}}),
+            self.response({"reply": [{"pretty_name": "devex_user", "role_id": "role-1"}]}),
+        ]
+
+        role_id = client.create_custom_role("devex_user", "GitLab repository access")
+
+        self.assertEqual(request.call_args_list[0].kwargs["json"], {
+            "request_data": {
+                "pretty_name": "devex_user",
+                "description": "GitLab repository access",
+                "component_permissions": [
+                    "app_sec_issues_view",
+                    "app_sec_scans_ci_cd_view",
+                ],
+            }
+        })
+        self.assertEqual(role_id, "role-1")
+
+    @patch("client.cortex_client.requests.request")
     def test_get_roles_includes_role_names(self, request):
         request.return_value = self.response({"reply": {"roles": []}})
 
@@ -148,23 +204,195 @@ class CortexClientTests(unittest.TestCase):
             get_roles.assert_not_called()
 
     @patch("client.cortex_client.requests.request")
-    def test_auto_discovery_does_not_switch_to_manual_selection(self, request):
+    def test_ensure_repository_asset_group_creates_dynamic_group(self, request):
+        self.client.dry_run = False
+        request.side_effect = [
+            self.response([{"reply": {"data": [], "metadata": {"total_count": 0}}}]),
+            self.response([{"reply": {"data": {"success": True, "asset_group_id": 987}}}]),
+        ]
+
+        group_id = self.client.ensure_repository_asset_group("group/repo-x")
+
+        self.assertEqual(group_id, 987)
+        create_call = request.call_args_list[1]
+        group = create_call.kwargs["json"]["request_data"]["asset_group"]
+        self.assertEqual(group["group_type"], "Dynamic")
+        self.assertEqual(group["membership_predicate"], {
+            "AND": [
+                {
+                    "SEARCH_FIELD": "xdm.asset.type.id",
+                    "SEARCH_TYPE": "EQ",
+                    "SEARCH_VALUE": "GITLAB_REPOSITORY",
+                },
+                {
+                    "SEARCH_FIELD": "xdm.asset.name",
+                    "SEARCH_TYPE": "EQ",
+                    "SEARCH_VALUE": "group/repo-x",
+                },
+            ]
+        })
+
+    @patch("client.cortex_client.requests.request")
+    def test_ensure_repository_asset_group_reuses_existing_group(self, request):
+        self.client.dry_run = False
+        group_name = self.client._repository_asset_group_name("group/repo-x")
+        request.return_value = self.response([{
+            "reply": {
+                "data": [{"group_name": group_name, "group_id": 987}],
+                "metadata": {"total_count": 1},
+            }
+        }])
+
+        self.assertEqual(self.client.ensure_repository_asset_group("group/repo-x"), 987)
+        request.assert_called_once()
+
+    def test_role_sync_scopes_user_to_all_member_repo_groups_before_assignment(self):
+        client = CortexClient(
+            api_url="https://cortex.example.test",
+            access_key="key-id",
+            secret_key="secret",
+            integration_id="data-source-id",
+            dry_run=False,
+            component_permissions=["app_sec_issues_view"],
+            asset_group_repository_type="GITLAB_REPOSITORY",
+            gitlab_key="lab",
+        )
+        client.fetch_cortex_users_lookup = Mock(return_value={"dev@example.com": {}})
+        client.get_custom_roles = Mock(return_value=[{"pretty_name": "devex_dev", "role_id": "role-1"}])
+        client.ensure_repository_asset_group = Mock(
+            side_effect=lambda path: {"group/repo-x": 11, "group/repo-y": 22}[path]
+        )
+        calls = []
+        client.update_user_asset_scope = Mock(
+            side_effect=lambda email, ids: calls.append(("scope", email, ids)) or True
+        )
+        client.set_user_role = Mock(
+            side_effect=lambda email, name: calls.append(("role", email, name)) or True
+        )
+        user_repos = {
+            "dev": {
+                "email": "dev@example.com",
+                "repositories": [
+                    {"repo": "group/repo-x"},
+                    {"repo": "group/repo-y"},
+                ],
+            }
+        }
+
+        results = client.create_or_update_user_roles(user_repos)
+
+        self.assertTrue(results["dev"]["success"])
+        self.assertEqual(calls, [
+            ("scope", "dev@example.com", [11, 22]),
+            ("role", "dev@example.com", "devex_dev"),
+        ])
+
+    def test_role_name_uses_configured_prefix(self):
+        client = CortexClient(
+            api_url="https://cortex.example.test",
+            access_key="key-id",
+            secret_key="secret",
+            integration_id="data-source-id",
+            role_name_prefix="lab_devex_",
+        )
+
+        self.assertEqual(client._generate_role_name("alice@example.com"), "lab_devex_alice")
+
+    @patch("client.cortex_client.requests.request")
+    def test_unresolved_gitlab_repo_group_prevents_role_and_scope_assignment(self, request):
+        self.client.gitlab_key = "lab"
+        with patch.object(self.client, "fetch_cortex_users_lookup", return_value={"dev@example.com": {}}), \
+             patch.object(self.client, "get_custom_roles", return_value=[]), \
+             patch.object(self.client, "ensure_repository_asset_group", side_effect=[11, None]), \
+             patch.object(self.client, "create_custom_role") as create_role, \
+             patch.object(self.client, "update_user_asset_scope") as update_scope, \
+             patch.object(self.client, "set_user_role") as assign_role:
+            results = self.client.create_or_update_user_roles({
+                "dev": {
+                    "email": "dev@example.com",
+                    "repositories": [
+                        {"repo": "group/repo-x"},
+                        {"repo": "group/repo-unmapped"},
+                    ],
+                }
+            })
+
+        self.assertFalse(results["dev"]["success"])
+        self.assertIn("group/repo-unmapped", results["dev"]["reason"])
+        create_role.assert_not_called()
+        update_scope.assert_not_called()
+        assign_role.assert_not_called()
+        request.assert_not_called()
+
+    @patch("client.cortex_client.requests.request")
+    def test_auto_discovery_switches_to_manual_and_adds_repo_one_at_a_time(self, request):
+        self.client.dry_run = False
         request.side_effect = [
             self.response({"data": [{"id": "repo-1", "name": "group/project-a"}]}),
             self.response({"data": [{
                 "id": "data-source-id",
                 "selectionType": "CURRENT_STATE_AND_FUTURE",
-                "state": [],
+                "state": ["group/project-a"],
+            }]}),
+            self.response({}),
+            self.response({}),
+            self.response({}),
+            self.response({"data": [
+                {"id": "repo-1", "name": "group/project-a"},
+                {"id": "repo-2", "name": "group/project-b"},
+            ]}),
+            self.response({"data": [{
+                "id": "data-source-id",
+                "selectionType": "MANUAL_SELECTION",
+                "state": ["group/project-a", "group/project-b"],
             }]}),
         ]
 
         lookup = self.client.activate_missing_repos_integration(
-            [{"path_with_namespace": "group/project-b"}],
+            [
+                {"path_with_namespace": "group/project-b"},
+                {"path_with_namespace": "group/project-c"},
+            ],
             "data-source-id",
         )
 
-        self.assertEqual(lookup, {"group/project-a": {"id": "repo-1", "is_new": False}})
-        self.assertEqual(request.call_count, 2)
+        self.assertEqual(request.call_count, 7)
+        self.assertEqual(request.call_args_list[2].kwargs["json"], {
+            "selectionType": "MANUAL_SELECTION",
+            "state": ["group/project-a"],
+        })
+        self.assertEqual(request.call_args_list[3].kwargs["json"], {
+            "selectionType": "MANUAL_SELECTION",
+            "state": ["group/project-a", "group/project-b"],
+        })
+        self.assertEqual(request.call_args_list[4].kwargs["json"], {
+            "selectionType": "MANUAL_SELECTION",
+            "state": ["group/project-a", "group/project-b", "group/project-c"],
+        })
+
+    @patch("client.cortex_client.requests.request")
+    def test_auto_discovery_is_switched_even_when_no_repos_are_new(self, request):
+        self.client.dry_run = False
+        request.side_effect = [
+            self.response({"data": [{"id": "repo-1", "name": "group/project-a"}]}),
+            self.response({"data": [{
+                "id": "data-source-id",
+                "selectionType": "CURRENT_STATE_AND_FUTURE",
+                "state": ["group/project-a"],
+            }]}),
+            self.response({}),
+        ]
+
+        self.client.activate_missing_repos_integration(
+            [{"path_with_namespace": "group/project-a"}],
+            "data-source-id",
+        )
+
+        self.assertEqual(request.call_count, 3)
+        self.assertEqual(request.call_args_list[2].kwargs["json"], {
+            "selectionType": "MANUAL_SELECTION",
+            "state": ["group/project-a"],
+        })
 
     @patch("client.cortex_client.requests.request")
     def test_manual_update_preserves_cortex_state_identifiers(self, request):
@@ -194,6 +422,67 @@ class CortexClientTests(unittest.TestCase):
         self.assertEqual(update_call.kwargs["json"], {
             "selectionType": "MANUAL_SELECTION",
             "state": ["external-project-a", "group/project-b"],
+        })
+
+    @patch("client.cortex_client.requests.request")
+    def test_empty_manual_state_does_not_mean_all_repositories_selected(self, request):
+        self.client.dry_run = False
+        request.side_effect = [
+            self.response({"data": [{"id": "repo-1", "name": "group/project-a"}]}),
+            self.response({"data": [{
+                "id": "data-source-id",
+                "selectionType": "MANUAL_SELECTION",
+                "state": [],
+            }]}),
+            self.response({}),
+            self.response({"data": [{"id": "repo-1", "name": "group/project-a"}]}),
+            self.response({"data": [{
+                "id": "data-source-id",
+                "selectionType": "MANUAL_SELECTION",
+                "state": ["group/project-a"],
+            }]}),
+        ]
+
+        result = self.client.activate_missing_repos_integration(
+            [{"path_with_namespace": "group/project-a"}],
+            "data-source-id",
+        )
+
+        self.assertEqual(result, {"group/project-a": {"id": "repo-1", "is_new": True}})
+        self.assertEqual(request.call_count, 5)
+        self.assertEqual(request.call_args_list[2].args[0], "PUT")
+        self.assertEqual(request.call_args_list[2].kwargs["json"], {
+            "selectionType": "MANUAL_SELECTION",
+            "state": ["group/project-a"],
+        })
+        self.assertEqual(request.call_args_list[3].args[0], "GET")
+
+    @patch("client.cortex_client.requests.request")
+    def test_selected_repo_is_returned_before_appsec_asset_is_indexed(self, request):
+        self.client.dry_run = False
+        request.side_effect = [
+            self.response({"data": []}),
+            self.response({"data": [{
+                "id": "data-source-id",
+                "selectionType": "MANUAL_SELECTION",
+                "state": [],
+            }]}),
+            self.response({}),
+            self.response({"data": []}),
+            self.response({"data": [{
+                "id": "data-source-id",
+                "selectionType": "MANUAL_SELECTION",
+                "state": ["group/new-repo"],
+            }]}),
+        ]
+
+        lookup = self.client.activate_missing_repos_integration(
+            [{"path_with_namespace": "group/new-repo"}],
+            "data-source-id",
+        )
+
+        self.assertEqual(lookup, {
+            "group/new-repo": {"id": None, "is_new": True}
         })
 
 

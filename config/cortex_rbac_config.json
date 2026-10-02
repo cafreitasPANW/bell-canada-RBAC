@@ -1,0 +1,11 @@
+{
+  "component_permissions": [
+    "app_sec_issues_view",
+    "app_sec_scans_periodic_view",
+    "app_sec_scans_pr_view",
+    "app_sec_scans_ci_cd_view"
+  ],
+  "role_name_prefix": "devex_",
+  "asset_group_repository_type": "GITLAB_REPOSITORY",
+  "asset_group_name_prefix": "gitlab-repo-"
+}

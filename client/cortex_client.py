@@ -1,6 +1,7 @@
 """Cortex Cloud API client for GitLab repository and RBAC synchronization."""
 
 import datetime
+import hashlib
 import json
 import os
 import time
@@ -21,9 +22,13 @@ class CortexClientError(Exception):
 class CortexClient:
     """Client for Cortex AppSec data sources and platform RBAC APIs."""
 
+    ASSET_GROUP_TYPE_FIELD = "xdm.asset.type.id"
+    ASSET_GROUP_REPOSITORY_NAME_FIELD = "xdm.asset.name"
+
     READ_ONLY_POST_ENDPOINTS = {
         "/public_api/v1/rbac/get_users",
         "/public_api/v1/rbac/get_roles",
+        "/public_api/v1/asset-groups",
     }
 
     def __init__(
@@ -36,6 +41,9 @@ class CortexClient:
         role_name_prefix: str = "devex_",
         default_role_name: str = "",
         gitlab_key: str = "",
+        component_permissions: Optional[List[str]] = None,
+        asset_group_repository_type: str = "GITLAB_REPOSITORY",
+        asset_group_name_prefix: str = "gitlab-repo-",
     ) -> None:
         required = {
             "api_url": api_url,
@@ -56,8 +64,12 @@ class CortexClient:
         self.role_name_prefix = role_name_prefix
         self.default_role_name = default_role_name
         self.gitlab_key = gitlab_key
+        self.component_permissions = list(component_permissions or [])
+        self.asset_group_repository_type = asset_group_repository_type
+        self.asset_group_name_prefix = asset_group_name_prefix
         self._roles_cache: Optional[list] = None
         self._users_cache: Optional[list] = None
+        self._asset_groups_cache: Optional[list] = None
 
     def _headers(self) -> Dict[str, str]:
         return {
@@ -158,7 +170,14 @@ class CortexClient:
         integration_repos = []
         for repository in repositories:
             name = self._repository_name(repository)
-            if not selected_names or name in selected_names or repository.get("url") in selected_names:
+            repository_aliases = {
+                name,
+                repository.get("repository"),
+                repository.get("url"),
+                repository.get("repositoryUrl"),
+            }
+            repository_aliases.discard(None)
+            if sources and repository_aliases.intersection(selected_names):
                 integration_repos.append(repository)
         if verify_repos:
             missing = set(verify_repos) - {self._repository_name(repo) for repo in integration_repos}
@@ -173,7 +192,7 @@ class CortexClient:
         }
 
     def activate_missing_repos_integration(self, projects: List[dict], cortex_intg_id: str) -> dict:
-        """Add GitLab project paths to an existing Cortex GitLab data source."""
+        """Ensure manual repository selection and append new repos one at a time."""
         current = self.get_repos(cortex_intg_id)
         selected = list(current.get("integration_repos", []))
         selected_names = {
@@ -188,28 +207,46 @@ class CortexClient:
         ]
         logger.info("Cortex data source %s has %s selected repositories", cortex_intg_id, len(selected))
         logger.info("Found %s GitLab repositories not selected in Cortex", len(missing))
-        if missing:
-            data_source = current.get("data_source", {})
-            selection_type = data_source.get("selectionType")
-            if selection_type != "MANUAL_SELECTION":
-                logger.warning(
-                    "Cortex data source %s has selectionType=%s; "
-                    "leaving its discovery configuration unchanged and skipping manual repository update.",
-                    cortex_intg_id,
-                    selection_type,
-                )
-                missing = []
-            else:
-                payload = {"selectionType": "MANUAL_SELECTION", "state": sorted(selected_names | set(missing))}
-                self._request("PUT", f"/public_api/appsec/v1/data_source_instances/{quote(cortex_intg_id, safe='')}", payload)
-                if not self.dry_run:
-                    selected = list(self.get_repos(cortex_intg_id).get("integration_repos", []))
+        data_source = current.get("data_source", {})
+        selection_type = data_source.get("selectionType")
+        data_source_endpoint = (
+            f"/public_api/appsec/v1/data_source_instances/{quote(cortex_intg_id, safe='')}"
+        )
+        state = sorted(current.get("selected_state", set()))
+        if selection_type != "MANUAL_SELECTION":
+            logger.warning(
+                "Switching Cortex data source %s from selectionType=%s to MANUAL_SELECTION.",
+                cortex_intg_id,
+                selection_type,
+            )
+            self._request("PUT", data_source_endpoint, {
+                "selectionType": "MANUAL_SELECTION",
+                "state": state.copy(),
+            })
+        for repository_path in missing:
+            if repository_path in state:
+                continue
+            state.append(repository_path)
+            logger.info("Adding repository to manual Cortex selection: %s", repository_path)
+            self._request("PUT", data_source_endpoint, {
+                "selectionType": "MANUAL_SELECTION",
+                "state": state.copy(),
+            })
+        if missing and not self.dry_run:
+            selected = list(self.get_repos(cortex_intg_id).get("integration_repos", []))
         lookup = {}
         for repository in selected:
             name = self._repository_name(repository)
             repository_id = repository.get("id") or repository.get("assetId")
             if name and repository_id:
                 lookup[name] = {"id": repository_id, "is_new": name in missing}
+        selected_state_after_update = set(state)
+        for project_name in project_names:
+            if project_name in selected_state_after_update and project_name not in lookup:
+                lookup[project_name] = {
+                    "id": None,
+                    "is_new": project_name in missing,
+                }
         return lookup
 
     def get_all_users(self) -> list:
@@ -273,9 +310,22 @@ class CortexClient:
         payload = {"request_data": {"role_names": role_names or []}}
         response = self._request("POST", "/public_api/v1/rbac/get_roles", payload)
         data = self._response_data(response)
-        roles = data.get("roles", data.get("data", [])) if isinstance(data, dict) else data
+        roles = self._find_role_records(data)
         self._roles_cache = roles if isinstance(roles, list) else []
         return self._roles_cache
+
+    @staticmethod
+    def _find_role_records(value: Any) -> list:
+        if isinstance(value, list):
+            return value if all(isinstance(item, dict) for item in value) else []
+        if not isinstance(value, dict):
+            return []
+        for key in ("roles", "data", "reply"):
+            if key in value:
+                records = CortexClient._find_role_records(value[key])
+                if records:
+                    return records
+        return []
 
     @staticmethod
     def _role_name(role: dict) -> str:
@@ -295,8 +345,17 @@ class CortexClient:
         return f"{self.role_name_prefix}{email.split('@')[0]}"
 
     def create_custom_role(self, role_name: str, description: str) -> Optional[str]:
-        permissions = [item.strip() for item in os.getenv("CORTEX_ROLE_COMPONENT_PERMISSIONS", "appsec.repositories.view").split(",") if item.strip()]
-        payload = {"request_data": {"pretty_name": role_name, "description": description, "component_permissions": permissions}}
+        if not self.component_permissions:
+            raise CortexClientError(
+                "No Cortex component permissions configured; set them in config/cortex_rbac_config.json"
+            )
+        payload = {
+            "request_data": {
+                "pretty_name": role_name,
+                "description": description,
+                "component_permissions": self.component_permissions,
+            }
+        }
         response = self._request("POST", "/platform/iam/v1/role", payload)
         data = self._response_data(response)
         self._roles_cache = None
@@ -306,6 +365,184 @@ class CortexClient:
         payload = {"request_data": {"user_emails": [user_email], "role_name": role_name}}
         self._request("POST", "/public_api/v1/rbac/set_user_role", payload)
         return True
+
+    def get_user_scope(self, user_email: str) -> dict:
+        response = self._request(
+            "GET",
+            f"/platform/iam/v1/scope/user/{quote(user_email, safe='')}"
+        )
+        data = self._response_data(response)
+        return data if isinstance(data, dict) else {}
+
+    def update_user_asset_scope(self, user_email: str, asset_group_ids: List[int]) -> bool:
+        """Restrict a Cortex user to configured SBAC asset groups."""
+        if not asset_group_ids:
+            logger.warning("No SBAC asset groups configured for %s; scope unchanged.", user_email)
+            return False
+        payload = {
+            "request_data": {
+                "assets": {
+                    "mode": "scope",
+                    "asset_group_ids": asset_group_ids,
+                }
+            }
+        }
+        self._request(
+            "PUT",
+            f"/platform/iam/v1/scope/user/{quote(user_email, safe='')}",
+            payload,
+        )
+        return True
+
+    @staticmethod
+    def _asset_group_records(value: Any) -> List[dict]:
+        if isinstance(value, list):
+            records = []
+            for item in value:
+                if isinstance(item, dict) and any(
+                    key in item for key in ("group_name", "asset_group_id", "group_id")
+                ):
+                    records.append(item)
+                else:
+                    records.extend(CortexClient._asset_group_records(item))
+            return records
+        if isinstance(value, dict):
+            records = []
+            for key in ("data", "reply", "asset_groups", "groups"):
+                if key in value:
+                    records.extend(CortexClient._asset_group_records(value[key]))
+            return records
+        return []
+
+    def get_asset_groups(self) -> List[dict]:
+        if self._asset_groups_cache is not None:
+            return self._asset_groups_cache
+        all_groups = []
+        page_size = 1000
+        for search_from in range(0, 2000, page_size):
+            response = self._request(
+                "POST",
+                "/public_api/v1/asset-groups",
+                {"request_data": {
+                    "search_from": search_from,
+                    "search_to": search_from + page_size - 1,
+                }},
+            )
+            body = response.json() if response.text.strip() else {}
+            groups = self._asset_group_records(body)
+            all_groups.extend(groups)
+            if len(groups) < page_size:
+                break
+        self._asset_groups_cache = all_groups
+        return all_groups
+
+    def _repository_asset_group_name(self, repository_path: str) -> str:
+        digest = hashlib.sha256(
+            f"{self.gitlab_key}:{repository_path}".encode("utf-8")
+        ).hexdigest()[:16]
+        return f"{self.asset_group_name_prefix}{digest}"
+
+    def ensure_repository_asset_group(self, repository_path: str) -> Optional[int]:
+        """Find or create the dynamic SBAC group for one GitLab repository."""
+        group_name = self._repository_asset_group_name(repository_path)
+        groups = self.get_asset_groups()
+        for group in groups:
+            if group.get("group_name") == group_name:
+                group_id = group.get("group_id") or group.get("asset_group_id") or group.get("id")
+                if group_id is not None:
+                    return int(group_id)
+                raise CortexClientError(
+                    f"Cortex asset group {group_name} has no group ID"
+                )
+
+        if len(groups) >= 1950:
+            raise CortexClientError(
+                "Cortex asset-group count is near the documented limit; "
+                "refusing to create another per-repository group"
+            )
+
+        if self.dry_run:
+            logger.info(
+                "DRY RUN: would create dynamic Cortex asset group %s for repo %s",
+                group_name,
+                repository_path,
+            )
+            return None
+
+        payload = {
+            "request_data": {
+                "asset_group": {
+                    "group_name": group_name,
+                    "group_type": "Dynamic",
+                    "group_description": (
+                        f"Managed by GitLab Cortex RBAC sync for {self.gitlab_key}: {repository_path}"
+                    ),
+                    "membership_predicate": {
+                        "AND": [
+                            {
+                                "SEARCH_FIELD": self.ASSET_GROUP_TYPE_FIELD,
+                                "SEARCH_TYPE": "EQ",
+                                "SEARCH_VALUE": self.asset_group_repository_type,
+                            },
+                            {
+                                "SEARCH_FIELD": self.ASSET_GROUP_REPOSITORY_NAME_FIELD,
+                                "SEARCH_TYPE": "EQ",
+                                "SEARCH_VALUE": repository_path,
+                            },
+                        ]
+                    },
+                }
+            }
+        }
+        response = self._request("POST", "/public_api/v1/asset-groups/create", payload)
+        body = response.json() if response.text.strip() else {}
+        group_id = self._find_asset_group_id(body)
+        if group_id is None:
+            raise CortexClientError(
+                f"Cortex did not return an asset group ID for {repository_path}"
+            )
+        if self._asset_groups_cache is None:
+            self._asset_groups_cache = []
+        self._asset_groups_cache.append({
+            "group_name": group_name,
+            "group_id": group_id,
+        })
+        return group_id
+
+    @staticmethod
+    def _find_asset_group_id(value: Any) -> Optional[int]:
+        if isinstance(value, dict):
+            group_id = value.get("asset_group_id") or value.get("group_id")
+            if group_id is not None:
+                return int(group_id)
+            for nested in value.values():
+                found = CortexClient._find_asset_group_id(nested)
+                if found is not None:
+                    return found
+        elif isinstance(value, list):
+            for item in value:
+                found = CortexClient._find_asset_group_id(item)
+                if found is not None:
+                    return found
+        return None
+
+    @staticmethod
+    def _role_result(reason: str) -> dict:
+        return {"success": False, "reason": reason, "role_id": None, "assigned": False}
+
+    def _asset_groups_for_user_repos(self, user_data: dict) -> tuple[List[int], List[str]]:
+        group_ids: Set[int] = set()
+        unmapped_repos = []
+        for repository in user_data.get("repositories", []):
+            repo_path = repository.get("repo")
+            if not repo_path:
+                continue
+            group_id = self.ensure_repository_asset_group(repo_path)
+            if group_id is None:
+                unmapped_repos.append(repo_path)
+                continue
+            group_ids.add(group_id)
+        return sorted(group_ids), sorted(set(unmapped_repos))
 
     def create_or_update_user_roles(self, user_repos: dict) -> dict:
         results = {}
@@ -321,10 +558,24 @@ class CortexClient:
         roles = self.get_custom_roles(role_names)
         for username, user_data in user_repos.items():
             email = user_data.get("email", "")
-            result = {"success": False, "reason": None, "role_id": None, "assigned": False}
+            result = self._role_result("")
             if not email or email.lower() not in users:
                 result["reason"] = "User not found in Cortex"
                 results[username] = result
+                continue
+            asset_group_ids, unmapped_repos = self._asset_groups_for_user_repos(user_data)
+            if unmapped_repos:
+                result["reason"] = (
+                    "No Cortex SBAC asset group was resolved for GitLab repositories: "
+                    + ", ".join(unmapped_repos)
+                )
+                results[username] = result
+                logger.error("Skipping %s: %s", username, result["reason"])
+                continue
+            if not asset_group_ids:
+                result["reason"] = "No Cortex SBAC asset groups resolved; refusing unscoped role assignment"
+                results[username] = result
+                logger.error("Skipping %s: %s", username, result["reason"])
                 continue
             role_name = self._generate_role_name(email)
             role_id = self.find_role_id_by_name(role_name, roles)
@@ -333,6 +584,7 @@ class CortexClient:
                     role_id = self.create_custom_role(role_name, f"GitLab repository access for {email}")
                 if not role_id and self.dry_run:
                     role_id = role_name
+                self.update_user_asset_scope(email, asset_group_ids)
                 self.set_user_role(email, role_name)
                 result.update(success=True, role_id=role_id, assigned=True)
             except CortexClientError as exc:
