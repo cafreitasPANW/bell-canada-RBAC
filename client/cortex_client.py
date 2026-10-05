@@ -466,40 +466,14 @@ class CortexClient:
     def get_asset_groups(self) -> List[dict]:
         if self._asset_groups_cache is not None:
             return self._asset_groups_cache
-        all_groups = []
-        page_size = 1000
-        seen_pages = set()
-        for page_number in range(100):
-            search_from = page_number * page_size
-            response = self._request(
-                "POST",
-                "/public_api/v1/asset-groups",
-                {"request_data": {
-                    "search_from": search_from,
-                    "search_to": search_from + page_size - 1,
-                }},
-            )
-            body = response.json() if response.text.strip() else {}
-            groups = self._asset_group_records(body)
-            page_signature = tuple(sorted(
-                (
-                    str(group.get("group_name") or group.get("asset_group_name") or group.get("name") or ""),
-                    str(group.get("group_id") or group.get("asset_group_id") or group.get("id") or ""),
-                )
-                for group in groups
-            ))
-            if page_signature and page_signature in seen_pages:
-                logger.warning("Cortex asset-group pagination repeated a page; stopping lookup")
-                break
-            if page_signature:
-                seen_pages.add(page_signature)
-            all_groups.extend(groups)
-            if len(groups) < page_size:
-                break
-        else:
-            logger.warning("Cortex asset-group lookup reached the 100-page safety limit")
-        self._asset_groups_cache = all_groups
-        return all_groups
+        response = self._request(
+            "POST",
+            "/public_api/v1/asset-groups",
+            {"request_data": {}},
+        )
+        body = response.json() if response.text.strip() else {}
+        self._asset_groups_cache = self._asset_group_records(body)
+        return self._asset_groups_cache
 
     def _repository_asset_group_name(self, repository_path: str) -> str:
         digest = hashlib.sha256(
