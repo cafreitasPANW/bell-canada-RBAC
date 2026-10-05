@@ -186,7 +186,7 @@ Example:
 
 ### LIVE
 - **Applies all changes** to Cortex Cloud
-- Creates new roles, updates existing roles, and activates repositories
+- Creates missing roles, assigns roles, updates user scopes, and selects repositories
 - Use with caution in production environments
 
 ### Cortex Repository Selection
@@ -264,7 +264,7 @@ Role assignment requires an identity that already exists in Cortex. The supplied
 
 The membership set is built from the GitLab projects returned in this execution, so it is bounded by `TOP_N_PROJECTS`, the activity window, and the configured topic/visibility filters. Set those controls so the run includes every repository whose access should remain in scope. For example, to ensure John retains X and Y while gaining Z, all three projects must be returned in the same run; if X or Y is excluded by the activity window or top-N limit, its group will be omitted from the recalculated scope.
 
-The scope update calls `PUT /platform/iam/v1/scope/user/{email}` using the documented Assets scope body:
+The scope update first reads the user's current scope, then calls `PUT /platform/iam/v1/scope/user/{email}`. It replaces only `assets` and preserves existing `endpoints`, `cases_issues`, and (when returned) `datasets_rows` settings. If no endpoint or cases/issues scope exists, the request uses `no_scope` for those sections; this avoids granting unrelated access. The Cortex API requires both `endpoints` and `cases_issues` in the update body, and requires `datasets_rows` when dataset row scoping is enabled for the tenant. A successful update therefore has this shape:
 
 ```json
 {
@@ -272,10 +272,21 @@ The scope update calls `PUT /platform/iam/v1/scope/user/{email}` using the docum
     "assets": {
       "mode": "scope",
       "asset_group_ids": [101, 202]
+    },
+    "endpoints": {
+      "endpoint_groups": {"mode": "no_scope", "names": []},
+      "endpoint_tags": {"mode": "no_scope", "names": []}
+    },
+    "cases_issues": {
+      "mode": "no_scope",
+      "include_cases_issues_empty_entities": false,
+      "names": []
     }
   }
 }
 ```
+
+Cortex does not allow scope updates on Instance Administrator entities. Users identified as administrators from Cortex role metadata are skipped before asset-group or role changes; administer their access directly in Cortex. If metadata does not identify an administrator, Cortex's explicit admin-scope rejection still stops role creation and assignment for that user. Other scope-update failures also stop role creation and assignment.
 
 The repository API's asset IDs are not SBAC asset-group IDs; the API-created dynamic group supplies the required integer group ID. SBAC must be enabled in Cortex Server Settings. The filter uses the XQL asset type and name fields supplied for the customer's repository inventory query. Verify the exact field identifiers are accepted by the tenant's Asset Groups API with one test repo before enabling LIVE. Cortex docs recommend keeping total asset groups below roughly 2,000; this design creates one per GitLab repo and stops creating groups near that limit. Also confirm users do not receive broader permissions/scopes through other assigned roles or groups; Cortex combines access from assignments.
 

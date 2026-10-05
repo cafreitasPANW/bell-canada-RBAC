@@ -379,13 +379,30 @@ class CortexClient:
         if not asset_group_ids:
             logger.warning("No SBAC asset groups configured for %s; scope unchanged.", user_email)
             return False
+        current_scope = self.get_user_scope(user_email)
+        if isinstance(current_scope.get("scope"), dict):
+            current_scope = current_scope["scope"]
+        endpoints_scope = current_scope.get("endpoints") or {
+            "endpoint_groups": {"mode": "no_scope", "names": []},
+            "endpoint_tags": {"mode": "no_scope", "names": []},
+        }
+        cases_issues_scope = current_scope.get("cases_issues") or {
+            "mode": "no_scope",
+            "include_cases_issues_empty_entities": False,
+            "names": [],
+        }
+        request_data = {
+            "assets": {
+                "mode": "scope",
+                "asset_group_ids": sorted(set(asset_group_ids)),
+            },
+            "endpoints": endpoints_scope,
+            "cases_issues": cases_issues_scope,
+        }
+        if "datasets_rows" in current_scope:
+            request_data["datasets_rows"] = current_scope["datasets_rows"]
         payload = {
-            "request_data": {
-                "assets": {
-                    "mode": "scope",
-                    "asset_group_ids": asset_group_ids,
-                }
-            }
+            "request_data": request_data
         }
         self._request(
             "PUT",
@@ -393,6 +410,30 @@ class CortexClient:
             payload,
         )
         return True
+
+    @staticmethod
+    def _is_admin_user(user: dict) -> bool:
+        role_names = [
+            user.get("role_name"),
+            user.get("role_pretty_name"),
+            user.get("user_role_name"),
+            user.get("role") if isinstance(user.get("role"), str) else None,
+        ]
+        if isinstance(user.get("role"), dict):
+            role = user["role"]
+            role_names.append(role.get("pretty_name") or role.get("role_name") or role.get("name"))
+        roles = user.get("roles", [])
+        if isinstance(roles, list):
+            role_names.extend(
+                role.get("pretty_name") or role.get("role_name") or role.get("name")
+                for role in roles if isinstance(role, dict)
+            )
+            role_names.extend(role for role in roles if isinstance(role, str))
+        normalized_names = {
+            str(name).strip().lower().replace("_", " ").replace("-", " ")
+            for name in role_names if name
+        }
+        return bool(normalized_names.intersection({"instance administrator", "instance admin"}))
 
     @staticmethod
     def _asset_group_records(value: Any) -> List[dict]:
@@ -563,6 +604,11 @@ class CortexClient:
                 result["reason"] = "User not found in Cortex"
                 results[username] = result
                 continue
+            if self._is_admin_user(users[email.lower()]):
+                result["reason"] = "Administrator users cannot receive automated SBAC scopes"
+                results[username] = result
+                logger.warning("Skipping %s: %s", username, result["reason"])
+                continue
             asset_group_ids, unmapped_repos = self._asset_groups_for_user_repos(user_data)
             if unmapped_repos:
                 result["reason"] = (
@@ -580,15 +626,22 @@ class CortexClient:
             role_name = self._generate_role_name(email)
             role_id = self.find_role_id_by_name(role_name, roles)
             try:
+                if not self.update_user_asset_scope(email, asset_group_ids):
+                    result["reason"] = "Cortex user scope was not updated; role assignment skipped"
+                    results[username] = result
+                    continue
                 if not role_id:
                     role_id = self.create_custom_role(role_name, f"GitLab repository access for {email}")
                 if not role_id and self.dry_run:
                     role_id = role_name
-                self.update_user_asset_scope(email, asset_group_ids)
                 self.set_user_role(email, role_name)
                 result.update(success=True, role_id=role_id, assigned=True)
             except CortexClientError as exc:
-                result["reason"] = str(exc)
+                if "scope cannot be updated for admin entity" in str(exc).lower():
+                    result["reason"] = "Administrator users cannot receive automated SBAC scopes"
+                    logger.warning("Skipping %s: %s", username, result["reason"])
+                else:
+                    result["reason"] = str(exc)
             results[username] = result
         return results
 

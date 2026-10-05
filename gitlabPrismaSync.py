@@ -336,7 +336,10 @@ def summarize_role_sync(results: dict, run_mode: str = 'DRY_RUN') -> bool:
     for username, result in results.items():
         if result.get('success'):
             success_count += 1
-        elif result.get('reason', '').lower() == 'user not found in cortex':
+        elif result.get('reason', '').lower() in {
+            'user not found in cortex',
+            'administrator users cannot receive automated sbac scopes',
+        }:
             skipped_count += 1
             skipped_users.append((username, result.get('reason')))
         else:
@@ -347,7 +350,7 @@ def summarize_role_sync(results: dict, run_mode: str = 'DRY_RUN') -> bool:
         f"{fail_count} failed, {skipped_count} skipped."
     )
     if skipped_count > 0:
-        logger.warning("Skipped users (not found in Cortex):")
+        logger.warning("Skipped users:")
         for username, reason in skipped_users:
             logger.warning(f"  {username}: {reason}")
     if fail_count > 0:

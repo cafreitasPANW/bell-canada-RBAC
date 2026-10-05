@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 
 import requests
 
-from client.cortex_client import CortexClient
+from client.cortex_client import CortexClient, CortexClientError
 
 
 class CortexClientTests(unittest.TestCase):
@@ -141,23 +141,63 @@ class CortexClientTests(unittest.TestCase):
             integration_id="data-source-id",
             dry_run=False,
         )
-        request.return_value = self.response({"data": {"message": "ok"}})
+        request.side_effect = [
+            self.response({"data": {}}),
+            self.response({"data": {"message": "ok"}}),
+        ]
 
         client.update_user_asset_scope("user@example.com", [101, 202])
 
-        self.assertEqual(request.call_args.args[0], "PUT")
+        self.assertEqual(request.call_args_list[0].args[0], "GET")
+        self.assertEqual(request.call_args_list[1].args[0], "PUT")
         self.assertEqual(
-            request.call_args.args[1],
+            request.call_args_list[1].args[1],
             "https://cortex.example.test/platform/iam/v1/scope/user/user%40example.com",
         )
-        self.assertEqual(request.call_args.kwargs["json"], {
+        self.assertEqual(request.call_args_list[1].kwargs["json"], {
             "request_data": {
                 "assets": {
                     "mode": "scope",
                     "asset_group_ids": [101, 202],
-                }
+                },
+                "endpoints": {
+                    "endpoint_groups": {"mode": "no_scope", "names": []},
+                    "endpoint_tags": {"mode": "no_scope", "names": []},
+                },
+                "cases_issues": {
+                    "mode": "no_scope",
+                    "include_cases_issues_empty_entities": False,
+                    "names": [],
+                },
             }
         })
+
+    @patch("client.cortex_client.requests.request")
+    def test_scope_update_preserves_existing_endpoint_and_dataset_sections(self, request):
+        current_sections = {
+            "endpoints": {"endpoint_groups": {"mode": "scope", "names": ["gitlab-runners"]}},
+            "cases_issues": {"mode": "see_all", "include_cases_issues_empty_entities": False, "names": []},
+            "datasets_rows": {"default_filter_mode": "no_scope", "filters": []},
+        }
+        request.side_effect = [
+            self.response({"data": current_sections}),
+            self.response({"data": {"message": "ok"}}),
+        ]
+        client = CortexClient(
+            api_url="https://cortex.example.test",
+            access_key="key-id",
+            secret_key="secret",
+            integration_id="data-source-id",
+            dry_run=False,
+        )
+
+        client.update_user_asset_scope("user@example.com", [101])
+
+        payload = request.call_args_list[1].kwargs["json"]["request_data"]
+        self.assertEqual(payload["endpoints"], current_sections["endpoints"])
+        self.assertEqual(payload["cases_issues"], current_sections["cases_issues"])
+        self.assertEqual(payload["datasets_rows"], current_sections["datasets_rows"])
+        self.assertEqual(payload["assets"]["asset_group_ids"], [101])
 
     @patch("client.cortex_client.requests.request")
     def test_role_creation_uses_configured_permissions(self, request):
@@ -202,6 +242,76 @@ class CortexClientTests(unittest.TestCase):
         with patch.object(self.client, "get_custom_roles") as get_roles:
             self.assertEqual(self.client.create_or_update_user_roles({}), {})
             get_roles.assert_not_called()
+
+    def test_admin_user_is_skipped_before_scope_and_role_updates(self):
+        self.client.fetch_cortex_users_lookup = Mock(return_value={
+            "admin@example.com": {"role_name": "Instance Administrator"}
+        })
+        self.client.get_custom_roles = Mock(return_value=[])
+        self.client.ensure_repository_asset_group = Mock(return_value=501)
+        self.client.create_custom_role = Mock()
+        self.client.update_user_asset_scope = Mock()
+        self.client.set_user_role = Mock()
+
+        result = self.client.create_or_update_user_roles({
+            "admin": {
+                "email": "admin@example.com",
+                "repositories": [{"repo": "team/repo"}],
+            }
+        })["admin"]
+
+        self.assertFalse(result["success"])
+        self.assertIn("Administrator", result["reason"])
+        self.client.ensure_repository_asset_group.assert_not_called()
+        self.client.create_custom_role.assert_not_called()
+        self.client.update_user_asset_scope.assert_not_called()
+        self.client.set_user_role.assert_not_called()
+
+    def test_scope_failure_does_not_create_or_assign_role(self):
+        self.client.fetch_cortex_users_lookup = Mock(return_value={
+            "user@example.com": {"role_name": "Developer"}
+        })
+        self.client.get_custom_roles = Mock(return_value=[])
+        self.client.ensure_repository_asset_group = Mock(return_value=501)
+        self.client.update_user_asset_scope = Mock(return_value=False)
+        self.client.create_custom_role = Mock()
+        self.client.set_user_role = Mock()
+
+        result = self.client.create_or_update_user_roles({
+            "user": {
+                "email": "user@example.com",
+                "repositories": [{"repo": "team/repo"}],
+            }
+        })["user"]
+
+        self.assertFalse(result["success"])
+        self.assertIn("scope was not updated", result["reason"])
+        self.client.create_custom_role.assert_not_called()
+        self.client.set_user_role.assert_not_called()
+
+    def test_admin_scope_rejection_without_role_metadata_is_skipped(self):
+        self.client.fetch_cortex_users_lookup = Mock(return_value={
+            "user@example.com": {}
+        })
+        self.client.get_custom_roles = Mock(return_value=[])
+        self.client.ensure_repository_asset_group = Mock(return_value=501)
+        self.client.update_user_asset_scope = Mock(
+            side_effect=CortexClientError("Scope cannot be updated for admin entity")
+        )
+        self.client.create_custom_role = Mock()
+        self.client.set_user_role = Mock()
+
+        result = self.client.create_or_update_user_roles({
+            "user": {
+                "email": "user@example.com",
+                "repositories": [{"repo": "team/repo"}],
+            }
+        })["user"]
+
+        self.assertFalse(result["success"])
+        self.assertIn("Administrator", result["reason"])
+        self.client.create_custom_role.assert_not_called()
+        self.client.set_user_role.assert_not_called()
 
     @patch("client.cortex_client.requests.request")
     def test_ensure_repository_asset_group_creates_dynamic_group(self, request):
