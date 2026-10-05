@@ -343,6 +343,28 @@ class CortexClientTests(unittest.TestCase):
         })
 
     @patch("client.cortex_client.requests.request")
+    def test_duplicate_asset_group_name_refreshes_and_reuses_existing_group(self, request):
+        self.client.dry_run = False
+        group_name = self.client._repository_asset_group_name("group/repo-x")
+        duplicate_error = self.response(
+            {"reply": {"err_msg": "invalid output: a group with the provided name already exists"}},
+            status_code=400,
+        )
+        request.side_effect = [
+            self.response([{"reply": {"data": [], "metadata": {"total_count": 0}}}]),
+            duplicate_error,
+            self.response({"reply": {"data": [{"asset_group_name": group_name, "id": 987}]}}),
+        ]
+
+        group_id = self.client.ensure_repository_asset_group("group/repo-x")
+
+        self.assertEqual(group_id, 987)
+        self.assertEqual(request.call_count, 3)
+        self.assertEqual(request.call_args_list[0].args[0], "POST")
+        self.assertEqual(request.call_args_list[1].args[1].endswith("/asset-groups/create"), True)
+        self.assertEqual(request.call_args_list[2].kwargs["json"]["request_data"]["search_from"], 0)
+
+    @patch("client.cortex_client.requests.request")
     def test_ensure_repository_asset_group_reuses_existing_group(self, request):
         self.client.dry_run = False
         group_name = self.client._repository_asset_group_name("group/repo-x")

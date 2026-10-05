@@ -99,6 +99,7 @@ class CortexClient:
         transient_statuses = {429, 500, 502, 503, 504}
         url = f"{self.api_url}/{endpoint.lstrip('/')}"
         for attempt in range(3):
+            response = None
             try:
                 response = requests.request(
                     method,
@@ -117,15 +118,18 @@ class CortexClient:
                 response.raise_for_status()
                 return response
             except requests.exceptions.RequestException as exc:
+                error_response = getattr(exc, "response", None) or response
+                status_code = getattr(error_response, "status_code", None)
                 if attempt < 2 and (
-                    not getattr(exc, "response", None)
-                    or exc.response.status_code in transient_statuses
+                    status_code is None or status_code in transient_statuses
                 ):
-                    time.sleep(2 ** attempt)
+                    retry_after = error_response.headers.get("Retry-After") if error_response else None
+                    delay = int(retry_after) if retry_after and retry_after.isdigit() else 2 ** attempt
+                    time.sleep(delay)
                     continue
                 response_body = ""
-                if getattr(exc, "response", None) is not None:
-                    response_body = exc.response.text[:2000]
+                if error_response is not None:
+                    response_body = error_response.text[:2000]
                 detail = f"; response={response_body}" if response_body else ""
                 raise CortexClientError(
                     f"{method} {endpoint} failed: {exc}{detail}"
@@ -441,7 +445,10 @@ class CortexClient:
             records = []
             for item in value:
                 if isinstance(item, dict) and any(
-                    key in item for key in ("group_name", "asset_group_id", "group_id")
+                    key in item for key in (
+                        "group_name", "asset_group_name", "name",
+                        "asset_group_id", "group_id", "id",
+                    )
                 ):
                     records.append(item)
                 else:
@@ -449,7 +456,10 @@ class CortexClient:
             return records
         if isinstance(value, dict):
             records = []
-            for key in ("data", "reply", "asset_groups", "groups"):
+            for key in (
+                "data", "reply", "asset_groups", "groups",
+                "results", "records", "items",
+            ):
                 if key in value:
                     records.extend(CortexClient._asset_group_records(value[key]))
             return records
@@ -476,25 +486,40 @@ class CortexClient:
                 break
         self._asset_groups_cache = all_groups
         return all_groups
-
     def _repository_asset_group_name(self, repository_path: str) -> str:
         digest = hashlib.sha256(
             f"{self.gitlab_key}:{repository_path}".encode("utf-8")
         ).hexdigest()[:16]
         return f"{self.asset_group_name_prefix}{digest}"
 
-    def ensure_repository_asset_group(self, repository_path: str) -> Optional[int]:
-        """Find or create the dynamic SBAC group for one GitLab repository."""
-        group_name = self._repository_asset_group_name(repository_path)
-        groups = self.get_asset_groups()
+    @staticmethod
+    def _existing_asset_group_id(groups: List[dict], group_name: str) -> Optional[int]:
         for group in groups:
-            if group.get("group_name") == group_name:
-                group_id = group.get("group_id") or group.get("asset_group_id") or group.get("id")
+            existing_name = (
+                group.get("group_name")
+                or group.get("asset_group_name")
+                or group.get("name")
+            )
+            if existing_name == group_name:
+                group_id = (
+                    group.get("group_id")
+                    or group.get("asset_group_id")
+                    or group.get("id")
+                )
                 if group_id is not None:
                     return int(group_id)
                 raise CortexClientError(
                     f"Cortex asset group {group_name} has no group ID"
                 )
+        return None
+
+    def ensure_repository_asset_group(self, repository_path: str) -> Optional[int]:
+        """Find or create the dynamic SBAC group for one GitLab repository."""
+        group_name = self._repository_asset_group_name(repository_path)
+        groups = self.get_asset_groups()
+        existing_group_id = self._existing_asset_group_id(groups, group_name)
+        if existing_group_id is not None:
+            return existing_group_id
 
         if len(groups) >= 1950:
             raise CortexClientError(
@@ -535,7 +560,19 @@ class CortexClient:
                 }
             }
         }
-        response = self._request("POST", "/public_api/v1/asset-groups/create", payload)
+        try:
+            response = self._request("POST", "/public_api/v1/asset-groups/create", payload)
+        except CortexClientError as exc:
+            if "already exists" not in str(exc).lower():
+                raise
+            self._asset_groups_cache = None
+            existing_group_id = self._existing_asset_group_id(
+                self.get_asset_groups(), group_name
+            )
+            if existing_group_id is None:
+                raise
+            logger.info("Reusing existing Cortex asset group %s", group_name)
+            return existing_group_id
         body = response.json() if response.text.strip() else {}
         group_id = self._find_asset_group_id(body)
         if group_id is None:

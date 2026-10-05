@@ -240,7 +240,7 @@ Local tests cannot verify tenant-specific Cortex permissions, data-source IDs, r
 6. Run with `RUN_MODE=LIVE` only after the dry-run output is approved.
 7. Verify the repository selection, generated role, and user assignment in Cortex.
 
-Repository groups are created automatically. When the sync encounters a GitLab repo, it searches for a deterministic dynamic Cortex Asset Group for that repo. If none exists, it creates one with two AND conditions: `xdm.asset.type.id = GITLAB_REPOSITORY` and `xdm.asset.name = <GitLab full path>`. This mirrors the repository selection in the supplied XQL query and prevents matching a non-repository asset that happens to have the same name. The returned group ID is then used in each member's scope. No per-repository asset-group IDs need to be maintained by an operator.
+Repository groups are created automatically. When the sync encounters a GitLab repo, it searches for a deterministic dynamic Cortex Asset Group for that repo. If none exists, it creates one with two AND conditions: `xdm.asset.type.id = GITLAB_REPOSITORY` and `xdm.asset.name = <GitLab full path>`. If Cortex reports that the group name already exists, the sync refreshes the group list and reuses the existing group's ID. This mirrors the repository selection in the supplied XQL query and prevents matching a non-repository asset that happens to have the same name. The returned group ID is then used in each member's scope. No per-repository asset-group IDs need to be maintained by an operator.
 
 `config/cortex_rbac_config.json` contains the generated role prefix, editable component permissions, repository type value, and generated-group name prefix. The two XQL field paths are fixed in code as `xdm.asset.type.id` and `xdm.asset.name`:
 
