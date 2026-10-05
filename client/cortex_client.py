@@ -501,27 +501,6 @@ class CortexClient:
         self._asset_groups_cache = all_groups
         return all_groups
 
-    def find_asset_group_by_name(self, group_name: str) -> Optional[int]:
-        """Use Cortex's filtered Asset Groups API to find one exact name."""
-        response = self._request(
-            "POST",
-            "/public_api/v1/asset-groups",
-            {"request_data": {
-                "filters": {
-                    "AND": [{
-                        "SEARCH_FIELD": "group_name",
-                        "SEARCH_TYPE": "EQ",
-                        "SEARCH_VALUE": group_name,
-                    }]
-                },
-                "search_from": 0,
-                "search_to": 99,
-            }},
-        )
-        groups = self._asset_group_records(
-            response.json() if response.text.strip() else {}
-        )
-        return self._existing_asset_group_id(groups, group_name)
     def _repository_asset_group_name(self, repository_path: str) -> str:
         digest = hashlib.sha256(
             f"{self.gitlab_key}:{repository_path}".encode("utf-8")
@@ -552,11 +531,6 @@ class CortexClient:
     def ensure_repository_asset_group(self, repository_path: str) -> Optional[int]:
         """Find or create the dynamic SBAC group for one GitLab repository."""
         group_name = self._repository_asset_group_name(repository_path)
-        existing_group_id = self.find_asset_group_by_name(group_name)
-        if existing_group_id is not None:
-            logger.info("Reusing existing Cortex asset group %s", group_name)
-            return existing_group_id
-
         groups = self.get_asset_groups()
         existing_group_id = self._existing_asset_group_id(groups, group_name)
         if existing_group_id is not None:
@@ -607,11 +581,9 @@ class CortexClient:
             if "already exists" not in str(exc).lower():
                 raise
             self._asset_groups_cache = None
-            existing_group_id = self.find_asset_group_by_name(group_name)
-            if existing_group_id is None:
-                existing_group_id = self._existing_asset_group_id(
-                    self.get_asset_groups(), group_name
-                )
+            existing_group_id = self._existing_asset_group_id(
+                self.get_asset_groups(), group_name
+            )
             if existing_group_id is None:
                 raise CortexClientError(
                     f"Cortex reported that Asset Group {group_name} already exists, "
