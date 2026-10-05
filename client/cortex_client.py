@@ -447,7 +447,6 @@ class CortexClient:
                 if isinstance(item, dict) and any(
                     key in item for key in (
                         "group_name", "asset_group_name", "name",
-                        "asset_group_id", "group_id", "id",
                     )
                 ):
                     records.append(item)
@@ -455,13 +454,12 @@ class CortexClient:
                     records.extend(CortexClient._asset_group_records(item))
             return records
         if isinstance(value, dict):
+            if any(value.get(key) for key in ("group_name", "asset_group_name")):
+                return [value]
             records = []
-            for key in (
-                "data", "reply", "asset_groups", "groups",
-                "results", "records", "items",
-            ):
-                if key in value:
-                    records.extend(CortexClient._asset_group_records(value[key]))
+            for key, nested in value.items():
+                if key not in {"metadata", "pagination"}:
+                    records.extend(CortexClient._asset_group_records(nested))
             return records
         return []
 
@@ -470,7 +468,9 @@ class CortexClient:
             return self._asset_groups_cache
         all_groups = []
         page_size = 1000
-        for search_from in range(0, 2000, page_size):
+        seen_pages = set()
+        for page_number in range(100):
+            search_from = page_number * page_size
             response = self._request(
                 "POST",
                 "/public_api/v1/asset-groups",
@@ -481,9 +481,23 @@ class CortexClient:
             )
             body = response.json() if response.text.strip() else {}
             groups = self._asset_group_records(body)
+            page_signature = tuple(sorted(
+                (
+                    str(group.get("group_name") or group.get("asset_group_name") or group.get("name") or ""),
+                    str(group.get("group_id") or group.get("asset_group_id") or group.get("id") or ""),
+                )
+                for group in groups
+            ))
+            if page_signature and page_signature in seen_pages:
+                logger.warning("Cortex asset-group pagination repeated a page; stopping lookup")
+                break
+            if page_signature:
+                seen_pages.add(page_signature)
             all_groups.extend(groups)
             if len(groups) < page_size:
                 break
+        else:
+            logger.warning("Cortex asset-group lookup reached the 100-page safety limit")
         self._asset_groups_cache = all_groups
         return all_groups
     def _repository_asset_group_name(self, repository_path: str) -> str:

@@ -378,6 +378,32 @@ class CortexClientTests(unittest.TestCase):
         self.assertEqual(self.client.ensure_repository_asset_group("group/repo-x"), 987)
         request.assert_called_once()
 
+    @patch("client.cortex_client.requests.request")
+    def test_asset_group_lookup_paginates_until_existing_group_is_found(self, request):
+        self.client.dry_run = False
+        group_name = self.client._repository_asset_group_name("group/repo-x")
+        first_page = [
+            {"group_name": f"existing-{index}", "group_id": index + 1}
+            for index in range(1000)
+        ]
+        second_page = [
+            {"group_name": f"existing-{index + 1000}", "group_id": index + 1001}
+            for index in range(1000)
+        ]
+        request.side_effect = [
+            self.response({"reply": {"data": first_page}}),
+            self.response({"reply": {"data": second_page}}),
+            self.response({"reply": {"data": [{"group_name": group_name, "group_id": 987}]}}),
+        ]
+
+        self.assertEqual(self.client.ensure_repository_asset_group("group/repo-x"), 987)
+
+        self.assertEqual(request.call_count, 3)
+        self.assertEqual(
+            [call.kwargs["json"]["request_data"]["search_from"] for call in request.call_args_list],
+            [0, 1000, 2000],
+        )
+
     def test_role_sync_scopes_user_to_all_member_repo_groups_before_assignment(self):
         client = CortexClient(
             api_url="https://cortex.example.test",
