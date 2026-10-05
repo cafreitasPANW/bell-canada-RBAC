@@ -317,6 +317,7 @@ class CortexClientTests(unittest.TestCase):
     def test_ensure_repository_asset_group_creates_dynamic_group(self, request):
         self.client.dry_run = False
         request.side_effect = [
+            self.response([{"reply": {"data": []}}]),
             self.response([{"reply": {"data": [], "metadata": {"total_count": 0}}}]),
             self.response([{"reply": {"data": {"success": True, "asset_group_id": 987}}}]),
         ]
@@ -324,7 +325,14 @@ class CortexClientTests(unittest.TestCase):
         group_id = self.client.ensure_repository_asset_group("group/repo-x")
 
         self.assertEqual(group_id, 987)
-        create_call = request.call_args_list[1]
+        self.assertEqual(request.call_args_list[0].kwargs["json"]["request_data"]["filters"], {
+            "AND": [{
+                "SEARCH_FIELD": "group_name",
+                "SEARCH_TYPE": "EQ",
+                "SEARCH_VALUE": self.client._repository_asset_group_name("group/repo-x"),
+            }]
+        })
+        create_call = request.call_args_list[2]
         group = create_call.kwargs["json"]["request_data"]["asset_group"]
         self.assertEqual(group["group_type"], "Dynamic")
         self.assertEqual(group["membership_predicate"], {
@@ -351,6 +359,7 @@ class CortexClientTests(unittest.TestCase):
             status_code=400,
         )
         request.side_effect = [
+            self.response({"reply": {"data": []}}),
             self.response([{"reply": {"data": [], "metadata": {"total_count": 0}}}]),
             duplicate_error,
             self.response({"reply": {"data": [{"asset_group_name": group_name, "id": 987}]}}),
@@ -359,10 +368,10 @@ class CortexClientTests(unittest.TestCase):
         group_id = self.client.ensure_repository_asset_group("group/repo-x")
 
         self.assertEqual(group_id, 987)
-        self.assertEqual(request.call_count, 3)
-        self.assertEqual(request.call_args_list[0].args[0], "POST")
-        self.assertEqual(request.call_args_list[1].args[1].endswith("/asset-groups/create"), True)
-        self.assertEqual(request.call_args_list[2].kwargs["json"]["request_data"]["search_from"], 0)
+        self.assertEqual(request.call_count, 4)
+        self.assertEqual(request.call_args_list[0].kwargs["json"]["request_data"]["filters"]["AND"][0]["SEARCH_VALUE"], group_name)
+        self.assertEqual(request.call_args_list[2].args[1].endswith("/asset-groups/create"), True)
+        self.assertEqual(request.call_args_list[3].kwargs["json"]["request_data"]["filters"]["AND"][0]["SEARCH_VALUE"], group_name)
 
     @patch("client.cortex_client.requests.request")
     def test_ensure_repository_asset_group_reuses_existing_group(self, request):
@@ -391,6 +400,7 @@ class CortexClientTests(unittest.TestCase):
             for index in range(1000)
         ]
         request.side_effect = [
+            self.response({"reply": {"data": []}}),
             self.response({"reply": {"data": first_page}}),
             self.response({"reply": {"data": second_page}}),
             self.response({"reply": {"data": [{"group_name": group_name, "group_id": 987}]}}),
@@ -398,9 +408,9 @@ class CortexClientTests(unittest.TestCase):
 
         self.assertEqual(self.client.ensure_repository_asset_group("group/repo-x"), 987)
 
-        self.assertEqual(request.call_count, 3)
+        self.assertEqual(request.call_count, 4)
         self.assertEqual(
-            [call.kwargs["json"]["request_data"]["search_from"] for call in request.call_args_list],
+            [call.kwargs["json"]["request_data"]["search_from"] for call in request.call_args_list[1:]],
             [0, 1000, 2000],
         )
 
