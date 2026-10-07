@@ -170,7 +170,23 @@ class CortexClient:
         sources = [source for source in self.get_data_sources() if source.get("id") == data_source_id]
         selected_names: Set[str] = set()
         if sources:
-            selected_names = set(sources[0].get("state") or [])
+            source = sources[0]
+            selected_names = set(source.get("state") or [])
+            all_repository_names = {
+                self._repository_name(repository)
+                for repository in repositories
+                if self._repository_name(repository)
+            }
+            try:
+                repository_count = int(source.get("repositoriesCount"))
+            except (TypeError, ValueError):
+                repository_count = None
+            if (
+                repository_count is not None
+                and len(selected_names) != repository_count
+                and len(all_repository_names) == repository_count
+            ):
+                selected_names = all_repository_names
         integration_repos = []
         for repository in repositories:
             name = self._repository_name(repository)
@@ -217,6 +233,17 @@ class CortexClient:
             f"/public_api/appsec/v1/data_source_instances/{quote(cortex_intg_id, safe='')}"
         )
         state = sorted(current.get("selected_state", set()))
+        try:
+            repository_count = int(data_source.get("repositoriesCount"))
+        except (TypeError, ValueError):
+            repository_count = None
+        if repository_count is None or len(state) != repository_count:
+            raise CortexClientError(
+                "Refusing to update Cortex repository selection: "
+                f"its reported repositoriesCount is {repository_count}, but only "
+                f"{len(state)} existing repositories could be preserved. "
+                "No repository-selection update was sent."
+            )
         if selection_type != "MANUAL_SELECTION":
             logger.warning(
                 "Switching Cortex data source %s from selectionType=%s to MANUAL_SELECTION.",
@@ -441,27 +468,18 @@ class CortexClient:
 
     @staticmethod
     def _asset_group_records(value: Any) -> List[dict]:
-        if isinstance(value, list):
-            records = []
-            for item in value:
-                if isinstance(item, dict) and any(
-                    key in item for key in (
-                        "group_name", "asset_group_name", "name",
-                    )
-                ):
-                    records.append(item)
-                else:
-                    records.extend(CortexClient._asset_group_records(item))
-            return records
-        if isinstance(value, dict):
-            if any(value.get(key) for key in ("group_name", "asset_group_name")):
-                return [value]
-            records = []
-            for key, nested in value.items():
-                if key not in {"metadata", "pagination"}:
-                    records.extend(CortexClient._asset_group_records(nested))
-            return records
-        return []
+        if not isinstance(value, dict):
+            return []
+        reply = value.get("reply")
+        if not isinstance(reply, dict):
+            return []
+        data = reply.get("data")
+        if not isinstance(data, list):
+            return []
+        return [
+            group for group in data
+            if isinstance(group, dict) and "XDM.ASSET_GROUP.NAME" in group
+        ]
 
     def get_asset_groups(self) -> List[dict]:
         if self._asset_groups_cache is not None:
@@ -484,17 +502,8 @@ class CortexClient:
     @staticmethod
     def _existing_asset_group_id(groups: List[dict], group_name: str) -> Optional[int]:
         for group in groups:
-            existing_name = (
-                group.get("group_name")
-                or group.get("asset_group_name")
-                or group.get("name")
-            )
-            if existing_name == group_name:
-                group_id = (
-                    group.get("group_id")
-                    or group.get("asset_group_id")
-                    or group.get("id")
-                )
+            if group.get("XDM.ASSET_GROUP.NAME") == group_name:
+                group_id = group.get("XDM.ASSET_GROUP.ID")
                 if group_id is not None:
                     return int(group_id)
                 raise CortexClientError(
@@ -555,14 +564,14 @@ class CortexClient:
             if "already exists" not in str(exc).lower():
                 raise
             self._asset_groups_cache = None
-            existing_group_id = self._existing_asset_group_id(
-                self.get_asset_groups(), group_name
-            )
+            refreshed_groups = self.get_asset_groups()
+            existing_group_id = self._existing_asset_group_id(refreshed_groups, group_name)
             if existing_group_id is None:
                 raise CortexClientError(
                     f"Cortex reported that Asset Group {group_name} already exists, "
-                    "but the list API did not return its group ID; check API-key "
-                    "permissions and the Asset Groups list response"
+                    f"but the list API returned {len(refreshed_groups)} groups without it; "
+                    "confirm the list response belongs to the same tenant and API key "
+                    "and includes group_name and group_id"
                 ) from exc
             logger.info("Reusing existing Cortex asset group %s", group_name)
             return existing_group_id
@@ -608,7 +617,12 @@ class CortexClient:
             repo_path = repository.get("repo")
             if not repo_path:
                 continue
-            group_id = self.ensure_repository_asset_group(repo_path)
+            try:
+                group_id = self.ensure_repository_asset_group(repo_path)
+            except CortexClientError as exc:
+                logger.error("Could not resolve Cortex Asset Group for %s: %s", repo_path, exc)
+                unmapped_repos.append(repo_path)
+                continue
             if group_id is None:
                 unmapped_repos.append(repo_path)
                 continue

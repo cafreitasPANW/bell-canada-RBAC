@@ -91,7 +91,12 @@ class CortexClientTests(unittest.TestCase):
     def test_repository_selection_update_payload(self, request):
         request.side_effect = [
             self.response({"data": [{"id": "repo-1", "name": "group/project-a"}]}),
-            self.response({"data": [{"id": "data-source-id", "state": ["group/project-a"]}]}),
+            self.response({"data": [{
+                "id": "data-source-id",
+                "selectionType": "MANUAL_SELECTION",
+                "state": ["group/project-a"],
+                "repositoriesCount": 1,
+            }]}),
         ]
         projects = [{"path_with_namespace": "group/project-a"}, {"path_with_namespace": "group/project-b"}]
 
@@ -317,7 +322,7 @@ class CortexClientTests(unittest.TestCase):
     def test_ensure_repository_asset_group_creates_dynamic_group(self, request):
         self.client.dry_run = False
         request.side_effect = [
-            self.response([{"reply": {"data": [], "metadata": {"total_count": 0}}}]),
+            self.response({"reply": {"data": [], "metadata": {"total_count": 0}}}),
             self.response([{"reply": {"data": {"success": True, "asset_group_id": 987}}}]),
         ]
 
@@ -352,9 +357,12 @@ class CortexClientTests(unittest.TestCase):
             status_code=400,
         )
         request.side_effect = [
-            self.response([{"reply": {"data": [], "metadata": {"total_count": 0}}}]),
+            self.response({"reply": {"data": [], "metadata": {"total_count": 0}}}),
             duplicate_error,
-            self.response({"reply": {"data": [{"asset_group_name": group_name, "id": 987}]}}),
+            self.response({"reply": {"data": [{
+                "XDM.ASSET_GROUP.NAME": group_name,
+                "XDM.ASSET_GROUP.ID": 987,
+            }]}}),
         ]
 
         group_id = self.client.ensure_repository_asset_group("group/repo-x")
@@ -368,12 +376,32 @@ class CortexClientTests(unittest.TestCase):
     def test_ensure_repository_asset_group_reuses_existing_group(self, request):
         self.client.dry_run = False
         group_name = self.client._repository_asset_group_name("group/repo-x")
-        request.return_value = self.response([{
+        request.return_value = self.response({
             "reply": {
-                "data": [{"group_name": group_name, "group_id": 987}],
+                "data": [{
+                    "XDM.ASSET_GROUP.NAME": group_name,
+                    "XDM.ASSET_GROUP.ID": 987,
+                }],
                 "metadata": {"total_count": 1},
             }
-        }])
+        })
+
+        self.assertEqual(self.client.ensure_repository_asset_group("group/repo-x"), 987)
+        request.assert_called_once()
+
+    @patch("client.cortex_client.requests.request")
+    def test_existing_asset_group_uses_xdm_name_and_id_fields(self, request):
+        self.client.dry_run = False
+        group_name = self.client._repository_asset_group_name("group/repo-x")
+        request.return_value = self.response({
+            "reply": {
+                "data": [{
+                    "XDM.ASSET_GROUP.NAME": group_name,
+                    "XDM.ASSET_GROUP.ID": 987,
+                }],
+                "metadata": {"total_count": 1},
+            }
+        })
 
         self.assertEqual(self.client.ensure_repository_asset_group("group/repo-x"), 987)
         request.assert_called_once()
@@ -383,16 +411,51 @@ class CortexClientTests(unittest.TestCase):
         self.client.dry_run = False
         group_name = self.client._repository_asset_group_name("group/repo-x")
         all_groups = [
-            {"group_name": f"existing-{index}", "group_id": index + 1}
+            {
+                "XDM.ASSET_GROUP.NAME": f"existing-{index}",
+                "XDM.ASSET_GROUP.ID": index + 1,
+            }
             for index in range(2001)
         ]
-        all_groups.append({"group_name": group_name, "group_id": 987})
-        request.return_value = self.response([{
+        all_groups.append({
+            "XDM.ASSET_GROUP.NAME": group_name,
+            "XDM.ASSET_GROUP.ID": 987,
+        })
+        request.return_value = self.response({
             "reply": {
                 "data": all_groups,
                 "metadata": {"filter_count": len(all_groups), "total_count": len(all_groups)},
             }
-        }])
+        })
+
+        self.assertEqual(self.client.ensure_repository_asset_group("group/repo-x"), 987)
+
+        request.assert_called_once()
+        self.assertEqual(request.call_args.kwargs["json"], {"request_data": {}})
+
+    @patch("client.cortex_client.requests.request")
+    def test_asset_group_lookup_matches_cortex_xdm_response_before_limit(self, request):
+        self.client.dry_run = False
+        group_name = self.client._repository_asset_group_name("group/repo-x")
+        groups = [
+            {
+                "XDM.ASSET_GROUP.ID": index + 1,
+                "XDM.ASSET_GROUP.NAME": f"existing-{index}",
+                "XDM.ASSET_GROUP.TYPE": "Dynamic",
+            }
+            for index in range(1969)
+        ]
+        groups.append({
+            "XDM.ASSET_GROUP.ID": 987,
+            "XDM.ASSET_GROUP.NAME": group_name,
+            "XDM.ASSET_GROUP.TYPE": "Dynamic",
+        })
+        request.return_value = self.response({
+            "reply": {
+                "data": groups,
+                "metadata": {"filter_count": 1970, "total_count": 1970},
+            }
+        })
 
         self.assertEqual(self.client.ensure_repository_asset_group("group/repo-x"), 987)
 
@@ -477,6 +540,30 @@ class CortexClientTests(unittest.TestCase):
         assign_role.assert_not_called()
         request.assert_not_called()
 
+    def test_asset_group_lookup_error_skips_user_without_aborting_role_batch(self):
+        with patch.object(self.client, "fetch_cortex_users_lookup", return_value={"dev@example.com": {}}), \
+             patch.object(self.client, "get_custom_roles", return_value=[]), \
+             patch.object(
+                 self.client,
+                 "ensure_repository_asset_group",
+                 side_effect=CortexClientError("duplicate group is absent from list response"),
+             ), \
+             patch.object(self.client, "create_custom_role") as create_role, \
+             patch.object(self.client, "update_user_asset_scope") as update_scope, \
+             patch.object(self.client, "set_user_role") as assign_role:
+            results = self.client.create_or_update_user_roles({
+                "dev": {
+                    "email": "dev@example.com",
+                    "repositories": [{"repo": "group/repo-x"}],
+                }
+            })
+
+        self.assertFalse(results["dev"]["success"])
+        self.assertIn("group/repo-x", results["dev"]["reason"])
+        create_role.assert_not_called()
+        update_scope.assert_not_called()
+        assign_role.assert_not_called()
+
     @patch("client.cortex_client.requests.request")
     def test_auto_discovery_switches_to_manual_and_adds_repo_one_at_a_time(self, request):
         self.client.dry_run = False
@@ -486,6 +573,7 @@ class CortexClientTests(unittest.TestCase):
                 "id": "data-source-id",
                 "selectionType": "CURRENT_STATE_AND_FUTURE",
                 "state": ["group/project-a"],
+                "repositoriesCount": 1,
             }]}),
             self.response({}),
             self.response({}),
@@ -532,6 +620,7 @@ class CortexClientTests(unittest.TestCase):
                 "id": "data-source-id",
                 "selectionType": "CURRENT_STATE_AND_FUTURE",
                 "state": ["group/project-a"],
+                "repositoriesCount": 1,
             }]}),
             self.response({}),
         ]
@@ -548,6 +637,132 @@ class CortexClientTests(unittest.TestCase):
         })
 
     @patch("client.cortex_client.requests.request")
+    def test_auto_discovery_refuses_unverifiable_selection_without_put(self, request):
+        self.client.dry_run = False
+        request.side_effect = [
+            self.response({"data": [{"id": "repo-70", "name": "group/repo-70"}]}),
+            self.response({"data": [{
+                "id": "data-source-id",
+                "selectionType": "CURRENT_STATE_AND_FUTURE",
+                "state": [],
+                "repositoriesCount": 2546,
+            }]}),
+        ]
+
+        with self.assertRaisesRegex(CortexClientError, "No repository-selection update was sent"):
+            self.client.activate_missing_repos_integration(
+                [{"path_with_namespace": "group/new-project"}],
+                "data-source-id",
+            )
+
+        self.assertEqual(request.call_count, 2)
+        self.assertTrue(all(call.args[0] == "GET" for call in request.call_args_list))
+
+    @patch("client.cortex_client.requests.request")
+    def test_manual_selection_refuses_incomplete_inventory_without_put(self, request):
+        self.client.dry_run = False
+        request.side_effect = [
+            self.response({"data": [
+                {"id": f"repo-{index}", "name": f"group/repo-{index}"}
+                for index in range(70)
+            ]}),
+            self.response({"data": [{
+                "id": "data-source-id",
+                "selectionType": "MANUAL_SELECTION",
+                "state": [],
+                "repositoriesCount": 2546,
+            }]}),
+        ]
+
+        with self.assertRaisesRegex(CortexClientError, "No repository-selection update was sent"):
+            self.client.activate_missing_repos_integration(
+                [{"path_with_namespace": "group/new-project"}],
+                "data-source-id",
+            )
+
+        self.assertEqual(request.call_count, 2)
+        self.assertTrue(all(call.args[0] == "GET" for call in request.call_args_list))
+
+    @patch("client.cortex_client.requests.request")
+    def test_manual_selection_reconstructs_complete_state_before_append(self, request):
+        self.client.dry_run = False
+        existing_repositories = [
+            {"id": "repo-1", "name": "group/project-a"},
+            {"id": "repo-2", "name": "group/project-b"},
+        ]
+        request.side_effect = [
+            self.response({"data": existing_repositories}),
+            self.response({"data": [{
+                "id": "data-source-id",
+                "selectionType": "MANUAL_SELECTION",
+                "state": [],
+                "repositoriesCount": 2,
+            }]}),
+            self.response({}),
+            self.response({"data": existing_repositories + [
+                {"id": "repo-3", "name": "group/project-c"},
+            ]}),
+            self.response({"data": [{
+                "id": "data-source-id",
+                "selectionType": "MANUAL_SELECTION",
+                "state": ["group/project-a", "group/project-b", "group/project-c"],
+                "repositoriesCount": 3,
+            }]}),
+        ]
+
+        self.client.activate_missing_repos_integration(
+            [{"path_with_namespace": "group/project-c"}],
+            "data-source-id",
+        )
+
+        self.assertEqual(request.call_args_list[2].kwargs["json"], {
+            "selectionType": "MANUAL_SELECTION",
+            "state": ["group/project-a", "group/project-b", "group/project-c"],
+        })
+
+    @patch("client.cortex_client.requests.request")
+    def test_auto_discovery_reconstructs_full_state_before_switching(self, request):
+        self.client.dry_run = False
+        existing_repositories = [
+            {"id": "repo-1", "name": "group/project-a"},
+            {"id": "repo-2", "name": "group/project-b"},
+        ]
+        request.side_effect = [
+            self.response({"data": existing_repositories}),
+            self.response({"data": [{
+                "id": "data-source-id",
+                "selectionType": "CURRENT_STATE_AND_FUTURE",
+                "state": [],
+                "repositoriesCount": 2,
+            }]}),
+            self.response({}),
+            self.response({}),
+            self.response({"data": existing_repositories + [
+                {"id": "repo-3", "name": "group/project-c"},
+            ]}),
+            self.response({"data": [{
+                "id": "data-source-id",
+                "selectionType": "MANUAL_SELECTION",
+                "state": ["group/project-a", "group/project-b", "group/project-c"],
+                "repositoriesCount": 3,
+            }]}),
+        ]
+
+        self.client.activate_missing_repos_integration(
+            [{"path_with_namespace": "group/project-c"}],
+            "data-source-id",
+        )
+
+        self.assertEqual(request.call_args_list[2].kwargs["json"], {
+            "selectionType": "MANUAL_SELECTION",
+            "state": ["group/project-a", "group/project-b"],
+        })
+        self.assertEqual(request.call_args_list[3].kwargs["json"], {
+            "selectionType": "MANUAL_SELECTION",
+            "state": ["group/project-a", "group/project-b", "group/project-c"],
+        })
+
+    @patch("client.cortex_client.requests.request")
     def test_manual_update_preserves_cortex_state_identifiers(self, request):
         self.client.dry_run = False
         request.side_effect = [
@@ -556,6 +771,7 @@ class CortexClientTests(unittest.TestCase):
                 "id": "data-source-id",
                 "selectionType": "MANUAL_SELECTION",
                 "state": ["external-project-a"],
+                "repositoriesCount": 1,
             }]}),
             self.response({}),
             self.response({"data": [{"id": "repo-1", "name": "project-a"}]}),
@@ -563,6 +779,7 @@ class CortexClientTests(unittest.TestCase):
                 "id": "data-source-id",
                 "selectionType": "MANUAL_SELECTION",
                 "state": ["external-project-a", "group/project-b"],
+                "repositoriesCount": 2,
             }]}),
         ]
 
@@ -586,6 +803,7 @@ class CortexClientTests(unittest.TestCase):
                 "id": "data-source-id",
                 "selectionType": "MANUAL_SELECTION",
                 "state": [],
+                "repositoriesCount": 0,
             }]}),
             self.response({}),
             self.response({"data": [{"id": "repo-1", "name": "group/project-a"}]}),
@@ -593,6 +811,7 @@ class CortexClientTests(unittest.TestCase):
                 "id": "data-source-id",
                 "selectionType": "MANUAL_SELECTION",
                 "state": ["group/project-a"],
+                "repositoriesCount": 1,
             }]}),
         ]
 
@@ -619,6 +838,7 @@ class CortexClientTests(unittest.TestCase):
                 "id": "data-source-id",
                 "selectionType": "MANUAL_SELECTION",
                 "state": [],
+                "repositoriesCount": 0,
             }]}),
             self.response({}),
             self.response({"data": []}),
@@ -626,6 +846,7 @@ class CortexClientTests(unittest.TestCase):
                 "id": "data-source-id",
                 "selectionType": "MANUAL_SELECTION",
                 "state": ["group/new-repo"],
+                "repositoriesCount": 1,
             }]}),
         ]
 
