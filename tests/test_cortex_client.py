@@ -149,7 +149,7 @@ class CortexClientTests(unittest.TestCase):
 
         current = self.client.get_repos("data-source-id")
 
-        self.assertEqual(current["selected_state"], {"bell/group/selected"})
+        self.assertEqual(current["selected_repositories"], {"bell/group/selected"})
         self.assertEqual([repo["id"] for repo in current["integration_repos"]], ["repo-selected"])
         self.assertEqual(request.call_count, 2)
 
@@ -735,14 +735,18 @@ class CortexClientTests(unittest.TestCase):
     def test_auto_discovery_refuses_unverifiable_selection_without_put(self, request):
         self.client.dry_run = False
         request.side_effect = [
-            self.response({"data": [{"id": "repo-70", "name": "group/repo-70"}]}),
+            self.response({"data": [{
+                "id": "repo-70",
+                "integrationId": "data-source-id",
+                "owner": "group",
+                "name": "repo-70",
+                "isSelected": True,
+            }]}),
             self.response({"data": [{
                 "id": "data-source-id",
                 "selectionType": "CURRENT_STATE_AND_FUTURE",
-                "state": [],
                 "repositoriesCount": 2546,
             }]}),
-            self.response({"id": "data-source-id", "state": []}),
         ]
 
         with self.assertRaisesRegex(CortexClientError, "No repository-selection update was sent"):
@@ -751,7 +755,7 @@ class CortexClientTests(unittest.TestCase):
                 "data-source-id",
             )
 
-        self.assertEqual(request.call_count, 3)
+        self.assertEqual(request.call_count, 2)
         self.assertTrue(all(call.args[0] == "GET" for call in request.call_args_list))
 
     @patch("client.cortex_client.requests.request")
@@ -759,16 +763,20 @@ class CortexClientTests(unittest.TestCase):
         self.client.dry_run = False
         request.side_effect = [
             self.response({"data": [
-                {"id": f"repo-{index}", "name": f"group/repo-{index}"}
+                {
+                    "id": f"repo-{index}",
+                    "integrationId": "data-source-id",
+                    "owner": "group",
+                    "name": f"repo-{index}",
+                    "isSelected": True,
+                }
                 for index in range(70)
             ]}),
             self.response({"data": [{
                 "id": "data-source-id",
                 "selectionType": "MANUAL_SELECTION",
-                "state": [],
                 "repositoriesCount": 2546,
             }]}),
-            self.response({"id": "data-source-id", "state": []}),
         ]
 
         with self.assertRaisesRegex(CortexClientError, "No repository-selection update was sent"):
@@ -777,7 +785,7 @@ class CortexClientTests(unittest.TestCase):
                 "data-source-id",
             )
 
-        self.assertEqual(request.call_count, 3)
+        self.assertEqual(request.call_count, 2)
         self.assertTrue(all(call.args[0] == "GET" for call in request.call_args_list))
 
     @patch("client.cortex_client.requests.request")

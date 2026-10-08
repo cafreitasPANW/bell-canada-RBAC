@@ -176,14 +176,6 @@ class CortexClient:
             data = data["data"]
         return data
 
-    def get_data_source(self, data_source_id: str) -> dict:
-        response = self._request(
-            "GET",
-            f"/public_api/appsec/v1/data_source_instances/{quote(data_source_id, safe='')}",
-        )
-        data = self._unwrap_data_source_response(self._response_data(response))
-        return data if isinstance(data, dict) else {}
-
     def get_repos(self, cortex_intg_id: Optional[str] = None, verify_repos: Optional[List[str]] = None) -> dict:
         """Return repository records selected for this specific integration."""
         response = self._request("GET", "/public_api/appsec/v1/repositories")
@@ -191,44 +183,17 @@ class CortexClient:
         repositories = data if isinstance(data, list) else data.get("repositories", []) if isinstance(data, dict) else []
         data_source_id = cortex_intg_id or self.integration_id
         sources = [source for source in self.get_data_sources() if source.get("id") == data_source_id]
-        selected_names: Set[str] = set()
-        data_source = {}
-        integration_repositories = [
+        data_source = sources[0] if sources else {}
+        integration_repos = [
             repository for repository in repositories
-            if isinstance(repository, dict) and "integrationId" in repository
+            if isinstance(repository, dict)
+            and repository.get("integrationId") == data_source_id
+            and repository.get("isSelected") is True
         ]
-        if sources:
-            source = sources[0]
-            if integration_repositories:
-                integration_repos = [
-                    repository for repository in integration_repositories
-                    if repository.get("integrationId") == data_source_id
-                    and repository.get("isSelected") is True
-                ]
-                selected_names = {
-                    name for repository in integration_repos
-                    if (name := self._repository_name(repository))
-                }
-            else:
-                selected_names = set(source.get("state") or [])
-                try:
-                    repository_count = int(source.get("repositoriesCount"))
-                except (TypeError, ValueError):
-                    repository_count = None
-                if repository_count is not None and len(selected_names) != repository_count:
-                    source_details = self.get_data_source(data_source_id)
-                    if source_details:
-                        source = {**source, **source_details}
-                        selected_names = set(source.get("state") or [])
-            data_source = source
-        else:
-            integration_repos = []
-        if sources and not integration_repositories:
-            integration_repos = []
-            for repository in repositories:
-                name = self._repository_name(repository)
-                if name and name in selected_names:
-                    integration_repos.append(repository)
+        selected_names = {
+            name for repository in integration_repos
+            if (name := self._repository_name(repository))
+        }
         if verify_repos:
             missing = set(verify_repos) - {self._repository_name(repo) for repo in integration_repos}
             if missing:
@@ -238,16 +203,14 @@ class CortexClient:
             "integration_repos": integration_repos,
             "sources": {"cortex": len(repositories)},
             "data_source": data_source,
-            "selected_state": selected_names,
+            "selected_repositories": selected_names,
         }
 
     def activate_missing_repos_integration(self, projects: List[dict], cortex_intg_id: str) -> dict:
         """Ensure manual repository selection and append new repos one at a time."""
         current = self.get_verified_repository_selection(cortex_intg_id)
         selected = list(current.get("integration_repos", []))
-        selected_names = {
-            name for name in current.get("selected_state", set()) if name
-        }
+        selected_names = current.get("selected_repositories", set())
         repository_names = {self._repository_name(repo) for repo in selected}
         project_names = [project.get("path_with_namespace") for project in projects]
         project_names = [name for name in project_names if name]
@@ -256,7 +219,7 @@ class CortexClient:
             if name not in selected_names and name not in repository_names
         ]
         logger.info(
-            "Cortex data source %s state contains %s repositories; %s currently appear in the AppSec repository inventory",
+            "Cortex data source %s has %s selected repositories; %s are in its repository records",
             cortex_intg_id,
             len(selected_names),
             len(selected),
@@ -267,7 +230,7 @@ class CortexClient:
         data_source_endpoint = (
             f"/public_api/appsec/v1/data_source_instances/{quote(cortex_intg_id, safe='')}"
         )
-        state = sorted(current.get("selected_state", set()))
+        state = sorted(selected_names)
         if selection_type != "MANUAL_SELECTION":
             logger.warning(
                 "Switching Cortex data source %s from selectionType=%s to MANUAL_SELECTION.",
@@ -295,9 +258,9 @@ class CortexClient:
             repository_id = repository.get("id") or repository.get("assetId")
             if name and repository_id:
                 lookup[name] = {"id": repository_id, "is_new": name in missing}
-        selected_state_after_update = set(state)
+        selected_repositories_after_update = set(state)
         for project_name in project_names:
-            if project_name in selected_state_after_update and project_name not in lookup:
+            if project_name in selected_repositories_after_update and project_name not in lookup:
                 lookup[project_name] = {
                     "id": None,
                     "is_new": project_name in missing,
@@ -312,7 +275,7 @@ class CortexClient:
             repository_count = int(data_source.get("repositoriesCount"))
         except (TypeError, ValueError):
             repository_count = None
-        selected_count = len(current.get("selected_state", set()))
+        selected_count = len(current.get("selected_repositories", set()))
         if repository_count is None or selected_count != repository_count:
             raise CortexClientError(
                 "Refusing to update Cortex repository selection: "
