@@ -150,6 +150,11 @@ class CortexClient:
         return (
             repository.get("fullRepositoryName")
             or repository.get("repository")
+            or (
+                f"{repository['owner']}/{repository['name']}"
+                if repository.get("owner") and repository.get("name")
+                else None
+            )
             or repository.get("name")
             or repository.get("url")
             or repository.get("repositoryUrl")
@@ -180,7 +185,7 @@ class CortexClient:
         return data if isinstance(data, dict) else {}
 
     def get_repos(self, cortex_intg_id: Optional[str] = None, verify_repos: Optional[List[str]] = None) -> dict:
-        """Return Cortex repository assets and repositories selected by the data source."""
+        """Return repository records selected for this specific integration."""
         response = self._request("GET", "/public_api/appsec/v1/repositories")
         data = self._response_data(response)
         repositories = data if isinstance(data, list) else data.get("repositories", []) if isinstance(data, dict) else []
@@ -188,46 +193,42 @@ class CortexClient:
         sources = [source for source in self.get_data_sources() if source.get("id") == data_source_id]
         selected_names: Set[str] = set()
         data_source = {}
+        integration_repositories = [
+            repository for repository in repositories
+            if isinstance(repository, dict) and "integrationId" in repository
+        ]
         if sources:
             source = sources[0]
-            try:
-                repository_count = int(source.get("repositoriesCount"))
-            except (TypeError, ValueError):
-                repository_count = None
-            selected_names = set(source.get("state") or [])
-            if repository_count is not None and len(selected_names) != repository_count:
-                source_details = self.get_data_source(data_source_id)
-                if source_details:
-                    source = {**source, **source_details}
-                    selected_names = set(source.get("state") or [])
-            all_repository_names = {
-                self._repository_name(repository)
-                for repository in repositories
-                if self._repository_name(repository)
-            }
-            try:
-                repository_count = int(source.get("repositoriesCount"))
-            except (TypeError, ValueError):
-                repository_count = None
-            if (
-                repository_count is not None
-                and len(selected_names) != repository_count
-                and len(all_repository_names) == repository_count
-            ):
-                selected_names = all_repository_names
+            if integration_repositories:
+                integration_repos = [
+                    repository for repository in integration_repositories
+                    if repository.get("integrationId") == data_source_id
+                    and repository.get("isSelected") is True
+                ]
+                selected_names = {
+                    name for repository in integration_repos
+                    if (name := self._repository_name(repository))
+                }
+            else:
+                selected_names = set(source.get("state") or [])
+                try:
+                    repository_count = int(source.get("repositoriesCount"))
+                except (TypeError, ValueError):
+                    repository_count = None
+                if repository_count is not None and len(selected_names) != repository_count:
+                    source_details = self.get_data_source(data_source_id)
+                    if source_details:
+                        source = {**source, **source_details}
+                        selected_names = set(source.get("state") or [])
             data_source = source
-        integration_repos = []
-        for repository in repositories:
-            name = self._repository_name(repository)
-            repository_aliases = {
-                name,
-                repository.get("repository"),
-                repository.get("url"),
-                repository.get("repositoryUrl"),
-            }
-            repository_aliases.discard(None)
-            if sources and repository_aliases.intersection(selected_names):
-                integration_repos.append(repository)
+        else:
+            integration_repos = []
+        if sources and not integration_repositories:
+            integration_repos = []
+            for repository in repositories:
+                name = self._repository_name(repository)
+                if name and name in selected_names:
+                    integration_repos.append(repository)
         if verify_repos:
             missing = set(verify_repos) - {self._repository_name(repo) for repo in integration_repos}
             if missing:

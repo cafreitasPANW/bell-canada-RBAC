@@ -115,66 +115,86 @@ class CortexClientTests(unittest.TestCase):
         self.assertEqual(request.call_count, 2)
 
     @patch("client.cortex_client.requests.request")
-    def test_get_repos_uses_by_id_state_when_source_list_state_is_empty(self, request):
-        selected_state = [f"group/repo-{index}" for index in range(2546)]
+    def test_get_repos_uses_integration_id_and_is_selected(self, request):
         request.side_effect = [
             self.response({"data": [
-                {"id": f"repo-{index}", "name": f"group/repo-{index}"}
-                for index in range(70)
+                {
+                    "id": "repo-selected",
+                    "integrationId": "data-source-id",
+                    "owner": "bell/group",
+                    "name": "selected",
+                    "isSelected": True,
+                },
+                {
+                    "id": "repo-unselected",
+                    "integrationId": "data-source-id",
+                    "owner": "bell/group",
+                    "name": "unselected",
+                    "isSelected": False,
+                },
+                {
+                    "id": "other-org-repo",
+                    "integrationId": "other-data-source",
+                    "owner": "other/group",
+                    "name": "repo",
+                    "isSelected": True,
+                },
             ]}),
             self.response({"data": [{
                 "id": "data-source-id",
                 "selectionType": "MANUAL_SELECTION",
-                "state": [],
-                "repositoriesCount": 2546,
+                "repositoriesCount": 1,
             }]}),
-            self.response({
-                "id": "data-source-id",
-                "selectionType": "MANUAL_SELECTION",
-                "state": selected_state,
-            }),
         ]
 
         current = self.client.get_repos("data-source-id")
 
-        self.assertEqual(len(current["selected_state"]), 2546)
-        self.assertEqual(len(current["integration_repos"]), 70)
-        self.assertEqual(current["data_source"]["repositoriesCount"], 2546)
-        self.assertTrue(request.call_args_list[2].args[1].endswith(
-            "/data_source_instances/data-source-id"
-        ))
+        self.assertEqual(current["selected_state"], {"bell/group/selected"})
+        self.assertEqual([repo["id"] for repo in current["integration_repos"]], ["repo-selected"])
+        self.assertEqual(request.call_count, 2)
 
     @patch("client.cortex_client.requests.request")
-    def test_manual_add_preserves_by_id_state_when_repo_inventory_is_partial(self, request):
+    def test_manual_add_preserves_integration_selected_repositories(self, request):
         self.client.dry_run = False
         selected_state = [f"group/repo-{index}" for index in range(2546)]
+        integration_id = "data-source-id"
         partial_inventory = [
-            {"id": f"repo-{index}", "name": f"group/repo-{index}"}
-            for index in range(70)
+            {
+                "id": f"repo-{index}",
+                "integrationId": integration_id,
+                "owner": "group",
+                "name": f"repo-{index}",
+                "isSelected": True,
+            }
+            for index in range(2546)
+        ] + [
+            {
+                "id": f"other-repo-{index}",
+                "integrationId": "other-data-source",
+                "owner": "other",
+                "name": f"repo-{index}",
+                "isSelected": True,
+            }
+            for index in range(5)
         ]
         source_list_state = {
-            "id": "data-source-id",
+            "id": integration_id,
             "selectionType": "MANUAL_SELECTION",
-            "state": [],
             "repositoriesCount": 2546,
         }
-        source_by_id = {
-            "id": "data-source-id",
-            "selectionType": "MANUAL_SELECTION",
-            "state": selected_state,
-        }
-        updated_by_id = {
-            **source_by_id,
-            "state": selected_state + ["bell-canada-unified-gitlab/devex-poc/npm-smpl"],
-        }
+        updated_inventory = partial_inventory + [{
+            "id": "new-repo-id",
+            "integrationId": integration_id,
+            "owner": "bell-canada-unified-gitlab/devex-poc",
+            "name": "npm-smpl",
+            "isSelected": True,
+        }]
         request.side_effect = [
             self.response({"data": partial_inventory}),
             self.response({"data": [source_list_state]}),
-            self.response({"reply": source_by_id}),
             self.response({}),
-            self.response({"data": partial_inventory}),
+            self.response({"data": updated_inventory}),
             self.response({"data": [{**source_list_state, "repositoriesCount": 2547}]}),
-            self.response({"reply": {"data": updated_by_id}}),
         ]
 
         self.client.activate_missing_repos_integration(
@@ -182,7 +202,7 @@ class CortexClientTests(unittest.TestCase):
             "data-source-id",
         )
 
-        update = request.call_args_list[3]
+        update = request.call_args_list[2]
         updated_state = update.kwargs["json"]["state"]
         self.assertEqual(update.args[0], "PUT")
         self.assertEqual(len(updated_state), 2547)
@@ -764,8 +784,8 @@ class CortexClientTests(unittest.TestCase):
     def test_manual_selection_reconstructs_complete_state_before_append(self, request):
         self.client.dry_run = False
         existing_repositories = [
-            {"id": "repo-1", "name": "group/project-a"},
-            {"id": "repo-2", "name": "group/project-b"},
+            {"id": "repo-1", "integrationId": "data-source-id", "owner": "group", "name": "project-a", "isSelected": True},
+            {"id": "repo-2", "integrationId": "data-source-id", "owner": "group", "name": "project-b", "isSelected": True},
         ]
         request.side_effect = [
             self.response({"data": existing_repositories}),
@@ -775,10 +795,9 @@ class CortexClientTests(unittest.TestCase):
                 "state": [],
                 "repositoriesCount": 2,
             }]}),
-            self.response({"id": "data-source-id", "state": []}),
             self.response({}),
             self.response({"data": existing_repositories + [
-                {"id": "repo-3", "name": "group/project-c"},
+                {"id": "repo-3", "integrationId": "data-source-id", "owner": "group", "name": "project-c", "isSelected": True},
             ]}),
             self.response({"data": [{
                 "id": "data-source-id",
@@ -793,7 +812,7 @@ class CortexClientTests(unittest.TestCase):
             "data-source-id",
         )
 
-        self.assertEqual(request.call_args_list[3].kwargs["json"], {
+        self.assertEqual(request.call_args_list[2].kwargs["json"], {
             "selectionType": "MANUAL_SELECTION",
             "state": ["group/project-a", "group/project-b", "group/project-c"],
         })
@@ -802,8 +821,8 @@ class CortexClientTests(unittest.TestCase):
     def test_auto_discovery_reconstructs_full_state_before_switching(self, request):
         self.client.dry_run = False
         existing_repositories = [
-            {"id": "repo-1", "name": "group/project-a"},
-            {"id": "repo-2", "name": "group/project-b"},
+            {"id": "repo-1", "integrationId": "data-source-id", "owner": "group", "name": "project-a", "isSelected": True},
+            {"id": "repo-2", "integrationId": "data-source-id", "owner": "group", "name": "project-b", "isSelected": True},
         ]
         request.side_effect = [
             self.response({"data": existing_repositories}),
@@ -813,11 +832,10 @@ class CortexClientTests(unittest.TestCase):
                 "state": [],
                 "repositoriesCount": 2,
             }]}),
-            self.response({"id": "data-source-id", "state": []}),
             self.response({}),
             self.response({}),
             self.response({"data": existing_repositories + [
-                {"id": "repo-3", "name": "group/project-c"},
+                {"id": "repo-3", "integrationId": "data-source-id", "owner": "group", "name": "project-c", "isSelected": True},
             ]}),
             self.response({"data": [{
                 "id": "data-source-id",
@@ -832,11 +850,11 @@ class CortexClientTests(unittest.TestCase):
             "data-source-id",
         )
 
-        self.assertEqual(request.call_args_list[3].kwargs["json"], {
+        self.assertEqual(request.call_args_list[2].kwargs["json"], {
             "selectionType": "MANUAL_SELECTION",
             "state": ["group/project-a", "group/project-b"],
         })
-        self.assertEqual(request.call_args_list[4].kwargs["json"], {
+        self.assertEqual(request.call_args_list[3].kwargs["json"], {
             "selectionType": "MANUAL_SELECTION",
             "state": ["group/project-a", "group/project-b", "group/project-c"],
         })
