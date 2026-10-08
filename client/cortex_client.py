@@ -158,8 +158,26 @@ class CortexClient:
 
     def get_data_sources(self) -> list:
         response = self._request("GET", "/public_api/appsec/v1/data_source_instances")
-        data = self._response_data(response)
-        return data if isinstance(data, list) else data.get("data", []) if isinstance(data, dict) else []
+        data = self._unwrap_data_source_response(self._response_data(response))
+        return data if isinstance(data, list) else []
+
+    @staticmethod
+    def _unwrap_data_source_response(data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        if isinstance(data.get("reply"), dict):
+            data = data["reply"]
+        if isinstance(data.get("data"), (dict, list)):
+            data = data["data"]
+        return data
+
+    def get_data_source(self, data_source_id: str) -> dict:
+        response = self._request(
+            "GET",
+            f"/public_api/appsec/v1/data_source_instances/{quote(data_source_id, safe='')}",
+        )
+        data = self._unwrap_data_source_response(self._response_data(response))
+        return data if isinstance(data, dict) else {}
 
     def get_repos(self, cortex_intg_id: Optional[str] = None, verify_repos: Optional[List[str]] = None) -> dict:
         """Return Cortex repository assets and repositories selected by the data source."""
@@ -169,9 +187,19 @@ class CortexClient:
         data_source_id = cortex_intg_id or self.integration_id
         sources = [source for source in self.get_data_sources() if source.get("id") == data_source_id]
         selected_names: Set[str] = set()
+        data_source = {}
         if sources:
             source = sources[0]
+            try:
+                repository_count = int(source.get("repositoriesCount"))
+            except (TypeError, ValueError):
+                repository_count = None
             selected_names = set(source.get("state") or [])
+            if repository_count is not None and len(selected_names) != repository_count:
+                source_details = self.get_data_source(data_source_id)
+                if source_details:
+                    source = {**source, **source_details}
+                    selected_names = set(source.get("state") or [])
             all_repository_names = {
                 self._repository_name(repository)
                 for repository in repositories
@@ -187,6 +215,7 @@ class CortexClient:
                 and len(all_repository_names) == repository_count
             ):
                 selected_names = all_repository_names
+            data_source = source
         integration_repos = []
         for repository in repositories:
             name = self._repository_name(repository)
@@ -207,13 +236,13 @@ class CortexClient:
             "all_repos": repositories,
             "integration_repos": integration_repos,
             "sources": {"cortex": len(repositories)},
-            "data_source": sources[0] if sources else {},
+            "data_source": data_source,
             "selected_state": selected_names,
         }
 
     def activate_missing_repos_integration(self, projects: List[dict], cortex_intg_id: str) -> dict:
         """Ensure manual repository selection and append new repos one at a time."""
-        current = self.get_repos(cortex_intg_id)
+        current = self.get_verified_repository_selection(cortex_intg_id)
         selected = list(current.get("integration_repos", []))
         selected_names = {
             name for name in current.get("selected_state", set()) if name
@@ -225,7 +254,12 @@ class CortexClient:
             name for name in project_names
             if name not in selected_names and name not in repository_names
         ]
-        logger.info("Cortex data source %s has %s selected repositories", cortex_intg_id, len(selected))
+        logger.info(
+            "Cortex data source %s state contains %s repositories; %s currently appear in the AppSec repository inventory",
+            cortex_intg_id,
+            len(selected_names),
+            len(selected),
+        )
         logger.info("Found %s GitLab repositories not selected in Cortex", len(missing))
         data_source = current.get("data_source", {})
         selection_type = data_source.get("selectionType")
@@ -233,17 +267,6 @@ class CortexClient:
             f"/public_api/appsec/v1/data_source_instances/{quote(cortex_intg_id, safe='')}"
         )
         state = sorted(current.get("selected_state", set()))
-        try:
-            repository_count = int(data_source.get("repositoriesCount"))
-        except (TypeError, ValueError):
-            repository_count = None
-        if repository_count is None or len(state) != repository_count:
-            raise CortexClientError(
-                "Refusing to update Cortex repository selection: "
-                f"its reported repositoriesCount is {repository_count}, but only "
-                f"{len(state)} existing repositories could be preserved. "
-                "No repository-selection update was sent."
-            )
         if selection_type != "MANUAL_SELECTION":
             logger.warning(
                 "Switching Cortex data source %s from selectionType=%s to MANUAL_SELECTION.",
@@ -279,6 +302,24 @@ class CortexClient:
                     "is_new": project_name in missing,
                 }
         return lookup
+
+    def get_verified_repository_selection(self, cortex_intg_id: str) -> dict:
+        """Return the current source only when its full selection state is available."""
+        current = self.get_repos(cortex_intg_id)
+        data_source = current.get("data_source", {})
+        try:
+            repository_count = int(data_source.get("repositoriesCount"))
+        except (TypeError, ValueError):
+            repository_count = None
+        selected_count = len(current.get("selected_state", set()))
+        if repository_count is None or selected_count != repository_count:
+            raise CortexClientError(
+                "Refusing to update Cortex repository selection: "
+                f"its reported repositoriesCount is {repository_count}, but only "
+                f"{selected_count} existing repositories could be preserved. "
+                "No repository-selection update was sent."
+            )
+        return current
 
     def get_all_users(self) -> list:
         response = self._request("POST", "/public_api/v1/rbac/get_users", {"request_data": {}})

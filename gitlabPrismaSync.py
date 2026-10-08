@@ -3,9 +3,9 @@
 
 Synchronizes GitLab projects and users with Cortex Cloud Application Security by:
 1. Fetching active GitLab projects based on activity thresholds
-2. Selecting missing repositories in Cortex Cloud data sources
-3. Building user-to-repository mappings from GitLab
-4. Creating/assigning Cortex Cloud roles for users with their repository access
+2. Building user-to-repository mappings from GitLab
+3. Creating required Asset Groups and applying member scopes/roles
+4. Selecting eligible repositories in the Cortex Cloud data source
 
 Workflow:
 - Validates required environment variables (credentials, integration ID)
@@ -294,6 +294,55 @@ def activate_repositories(
     logger.info(SEPARATOR_LINE)
     return cortex.activate_missing_repos_integration(projects, cortex_data_source_id)
 
+def projects_ready_for_repository_selection(
+    cortex: CortexClient,
+    projects: list,
+    user_repos: dict,
+    role_results: dict,
+) -> list:
+    """Keep only projects with a resolved asset group and successful member scopes."""
+    users_by_repository = {}
+    for username, user_data in user_repos.items():
+        for repository in user_data.get("repositories", []):
+            repository_path = repository.get("repo")
+            if repository_path:
+                users_by_repository.setdefault(repository_path, set()).add(username)
+
+    ready_projects = []
+    for project in projects:
+        repository_path = project.get("path_with_namespace")
+        if not repository_path:
+            continue
+        try:
+            group_id = cortex.ensure_repository_asset_group(repository_path)
+        except CortexClientError as exc:
+            logger.error(
+                "Not selecting %s because its Cortex Asset Group is unavailable: %s",
+                repository_path,
+                exc,
+            )
+            continue
+        if group_id is None:
+            logger.error("Not selecting %s because its Cortex Asset Group was not resolved", repository_path)
+            continue
+
+        failed_members = []
+        for username in users_by_repository.get(repository_path, set()):
+            result = role_results.get(username, {})
+            if result.get("reason") == "Administrator users cannot receive automated SBAC scopes":
+                continue
+            if not result.get("success"):
+                failed_members.append(username)
+        if failed_members:
+            logger.error(
+                "Not selecting %s because member scopes/roles failed for: %s",
+                repository_path,
+                ", ".join(sorted(failed_members)),
+            )
+            continue
+        ready_projects.append(project)
+    return ready_projects
+
 def build_user_mapping(
     projects: list,
     gitlab: GitLabClient,
@@ -437,10 +486,11 @@ def main() -> None:
         1. Validate environment and load configuration
         2. Initialize GitLab and Cortex clients
         3. Fetch active GitLab projects based on activity threshold
-        4. Select repositories in the Cortex Cloud data source
+        4. Validate the existing Cortex repository-selection state
         5. Build user-to-repository mappings from GitLab
-        6. Create or assign Cortex Cloud roles for users
-        7. Summarize synchronization results
+        6. Create Asset Groups and process member scopes/roles
+        7. Select only eligible repositories in the Cortex data source
+        8. Summarize synchronization results
     
     Raises:
         SystemExit: On environment validation or general processing failure
@@ -470,13 +520,17 @@ def main() -> None:
             return
 
         cortex_data_source_id = cortex.integration_id
-        cortex_repo_lookup = activate_repositories(
-            cortex, projects, cortex_data_source_id
-        )
-        if not cortex_repo_lookup:
-            logger.warning("No repositories were returned from Cortex. Stopping further processing.")
-            logger.info(SEPARATOR_LINE)
-            return
+        if run_mode == 'LIVE':
+            cortex.get_verified_repository_selection(cortex_data_source_id)
+            cortex_repo_lookup = {}
+        else:
+            cortex_repo_lookup = activate_repositories(
+                cortex, projects, cortex_data_source_id
+            )
+            if not cortex_repo_lookup:
+                logger.warning("No repositories were returned from Cortex. Stopping further processing.")
+                logger.info(SEPARATOR_LINE)
+                return
 
         cortex_users_by_email = cortex.fetch_cortex_users_lookup(active_only=True)
         allowed_cortex_emails = set(cortex_users_by_email.keys())
@@ -497,6 +551,14 @@ def main() -> None:
         logger.info("User Create/Update Role Processing")
         logger.info(SEPARATOR_LINE)
         results = cortex.create_or_update_user_roles(user_repos)
+        if run_mode == 'LIVE':
+            ready_projects = projects_ready_for_repository_selection(
+                cortex, projects, user_repos, results
+            )
+            if ready_projects:
+                activate_repositories(cortex, ready_projects, cortex_data_source_id)
+            else:
+                logger.warning("No projects passed Asset Group and member-scope checks; no repositories were selected.")
         sync_ok = summarize_role_sync(results, run_mode=run_mode)
         if not sync_ok:
             logger.error(SEPARATOR_LINE)
