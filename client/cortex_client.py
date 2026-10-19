@@ -22,9 +22,6 @@ class CortexClientError(Exception):
 class CortexClient:
     """Client for Cortex AppSec data sources and platform RBAC APIs."""
 
-    ASSET_GROUP_TYPE_FIELD = "xdm.asset.type.id"
-    ASSET_GROUP_REPOSITORY_NAME_FIELD = "xdm.asset.name"
-
     READ_ONLY_POST_ENDPOINTS = {
         "/public_api/v1/rbac/get_users",
         "/public_api/v1/rbac/get_roles",
@@ -549,17 +546,17 @@ class CortexClient:
                     "membership_predicate": {
                         "AND": [
                             {
-                                "SEARCH_FIELD": self.ASSET_GROUP_TYPE_FIELD,
+                                "SEARCH_FIELD": "xdm.asset.provider",
                                 "SEARCH_TYPE": "EQ",
-                                "SEARCH_VALUE": self.asset_group_repository_type,
+                                "SEARCH_VALUE": "GITLAB_SELF_MANAGED"
                             },
                             {
-                                "SEARCH_FIELD": self.ASSET_GROUP_REPOSITORY_NAME_FIELD,
-                                "SEARCH_TYPE": "EQ",
-                                "SEARCH_VALUE": repository_path,
-                            },
+                                "SEARCH_FIELD": "xdm.repository.name",
+                                "SEARCH_TYPE": "CONTAINS",
+                                "SEARCH_VALUE": repository_path
+                            }
                         ]
-                    },
+                    }
                 }
             }
         }
