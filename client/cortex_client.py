@@ -552,7 +552,7 @@ class CortexClient:
                             },
                             {
                                 "SEARCH_FIELD": "xdm.repository.name",
-                                "SEARCH_TYPE": "CONTAINS",
+                                "SEARCH_TYPE": "EQ",
                                 "SEARCH_VALUE": repository_path
                             }
                         ]
