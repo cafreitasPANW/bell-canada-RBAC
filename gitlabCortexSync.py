@@ -444,7 +444,7 @@ def initialize_clients(run_mode: str) -> Tuple[GitLabClient, CortexClient]:
         cortex_api_secret = os.getenv('CORTEX_API_SECRET')
         cortex_api_url = os.getenv(
             'CORTEX_API_URL',
-            os.getenv('CORTEX_HOST_URL', 'https://api-yourfqdn')
+            os.getenv('CORTEX_HOST_URL', 'https://urldefense.proofpoint.com/v2/url?u=https-3A__api-2Dyourfqdn&d=DwIGAg&c=V9IgWpI5PvzTw83UyHGVSoW3Uc1MFWe5J8PTfkrzVSo&r=wfoWnu11Wb4LeA5HxA4fv2GV-MuiH2Ha7_rbpie9eWE&m=EZC1sEQk6F6uECY7qKx3emB72ESpSHLzU0Fr8jrNQgtrO3PEF0tYwGBUinbBqjuG&s=M2rQh2xMCwAj5PLWWySj436LtWrta2MxveSZAeMHV1c&e= ')
         )
         default_role_name = os.getenv('CORTEX_DEFAULT_ROLE_NAME', '')
         (

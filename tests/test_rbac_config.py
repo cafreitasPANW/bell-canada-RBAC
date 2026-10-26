@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from gitlabPrismaSync import (
+from gitlabCortexSync import (
     EnvironmentValidationError,
     get_gitlab_config,
     load_cortex_rbac_config,

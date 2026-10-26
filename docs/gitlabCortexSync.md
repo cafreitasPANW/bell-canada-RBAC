@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `gitlabPrismaSync.py` script synchronizes GitLab projects and users with Cortex Cloud Application Security by automatically:
+The `gitlabCortexSync.py` script synchronizes GitLab projects and users with Cortex Cloud Application Security by automatically:
 
 1. **Fetching active GitLab projects** based on activity thresholds
 2. **Selecting missing repositories** in Cortex Cloud data sources
@@ -215,7 +215,7 @@ The tests use mocked HTTP responses. They do not require GitLab or Cortex creden
 Run syntax and configuration checks separately:
 
 ```bash
-python -m py_compile gitlabPrismaSync.py client/cortex_client.py client/gitlab_client.py common/utils.py
+python -m py_compile gitlabCortexSync.py client/cortex_client.py client/gitlab_client.py common/utils.py
 python -m json.tool config/gitlab_instances_config.json
 ```
 
@@ -418,14 +418,14 @@ export RUN_MODE="DRY_RUN"
 export TOP_N_PROJECTS="10"
 export LOG_LEVEL="INFO"
 
-python gitlabPrismaSync.py
+python gitlabCortexSync.py
 ```
 
 ### CI/CD Pipeline (LIVE)
 ```bash
 export RUN_MODE="LIVE"
 export GITLAB_CONFIG_KEY="ug-onprem-prod"
-python gitlabPrismaSync.py
+python gitlabCortexSync.py
 # (Credentials provided via Vault)
 ```
 

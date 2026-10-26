@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import Mock
 
 from client.cortex_client import CortexClientError
-from gitlabPrismaSync import projects_ready_for_repository_selection
+from gitlabCortexSync import projects_ready_for_repository_selection
 
 
 class RepositorySelectionReadinessTests(unittest.TestCase):

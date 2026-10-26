@@ -375,7 +375,7 @@ class CortexClient:
         return None
 
     def _generate_role_name(self, email: str) -> str:
-        return f"{self.role_name_prefix}{email.split('@')[0]}"
+        return f"{self.role_name_prefix}{email.split('@')[0].lower()}"
 
     def create_custom_role(self, role_name: str, description: str) -> Optional[str]:
         if not self.component_permissions:
@@ -389,7 +389,16 @@ class CortexClient:
                 "component_permissions": self.component_permissions,
             }
         }
-        response = self._request("POST", "/platform/iam/v1/role", payload)
+        try:
+            response = self._request("POST", "/platform/iam/v1/role", payload)
+        except CortexClientError as exc:
+            if "already utilized by another role" not in str(exc).lower():
+                raise
+            # Role already exists (e.g. created by a prior run); reuse it instead of failing the sync.
+            # set_user_role only needs the role name, so the role_id isn't required here.
+            logger.info("Role %s already exists in Cortex; reusing it.", role_name)
+            self._roles_cache = None
+            return role_name
         data = self._response_data(response)
         self._roles_cache = None
         return self.find_role_id_by_name(role_name) or (data.get("role_id") if isinstance(data, dict) else None)
