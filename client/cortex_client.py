@@ -35,7 +35,8 @@ class CortexClient:
         secret_key: str,
         integration_id: str,
         dry_run: bool = True,
-        role_name_prefix: str = "devex_",
+        role_name: str = "Bell-Devex-General",
+        user_group_name: str = "Bell-Devex-General",
         default_role_name: str = "",
         gitlab_key: str = "",
         component_permissions: Optional[List[str]] = None,
@@ -58,7 +59,8 @@ class CortexClient:
         self.secret_key = secret_key
         self.integration_id = integration_id
         self.dry_run = dry_run
-        self.role_name_prefix = role_name_prefix
+        self.role_name = role_name
+        self.user_group_name = user_group_name
         self.default_role_name = default_role_name
         self.gitlab_key = gitlab_key
         self.component_permissions = list(component_permissions or [])
@@ -374,9 +376,6 @@ class CortexClient:
                 return self._role_id(role)
         return None
 
-    def _generate_role_name(self, email: str) -> str:
-        return f"{self.role_name_prefix}{email.split('@')[0].lower()}"
-
     def create_custom_role(self, role_name: str, description: str) -> Optional[str]:
         if not self.component_permissions:
             raise CortexClientError(
@@ -395,18 +394,97 @@ class CortexClient:
             if "already utilized by another role" not in str(exc).lower():
                 raise
             # Role already exists (e.g. created by a prior run); reuse it instead of failing the sync.
-            # set_user_role only needs the role name, so the role_id isn't required here.
             logger.info("Role %s already exists in Cortex; reusing it.", role_name)
             self._roles_cache = None
-            return role_name
+            return self.find_role_id_by_name(role_name)
         data = self._response_data(response)
         self._roles_cache = None
         return self.find_role_id_by_name(role_name) or (data.get("role_id") if isinstance(data, dict) else None)
 
-    def set_user_role(self, user_email: str, role_name: str) -> bool:
-        payload = {"request_data": {"user_emails": [user_email], "role_name": role_name}}
-        self._request("POST", "/public_api/v1/rbac/set_user_role", payload)
-        return True
+    def ensure_shared_role(self) -> Optional[str]:
+        """Find or create the shared view-only role and return its role ID."""
+        role_id = self.find_role_id_by_name(self.role_name, self.get_custom_roles([self.role_name]))
+        if role_id:
+            return role_id
+        if self.dry_run:
+            logger.info("DRY RUN: would create Cortex role %s", self.role_name)
+            return None
+        role_id = self.create_custom_role(
+            self.role_name, "View-only AppSec access managed by GitLab Cortex RBAC sync"
+        )
+        if not role_id:
+            raise CortexClientError(f"Could not resolve role ID for Cortex role {self.role_name}")
+        return role_id
+
+    def get_user_groups(self) -> List[dict]:
+        response = self._request("GET", "/platform/iam/v1/user-group")
+        body = response.json() if response.text.strip() else {}
+        data = body.get("data") if isinstance(body, dict) else None
+        return [group for group in data if isinstance(group, dict)] if isinstance(data, list) else []
+
+    def _find_user_group(self) -> Optional[dict]:
+        for group in self.get_user_groups():
+            if group.get("group_name") == self.user_group_name:
+                return group
+        return None
+
+    def ensure_user_group(self, role_id: Optional[str]) -> Optional[dict]:
+        """Find or create the shared user group that carries the shared role."""
+        group = self._find_user_group()
+        if group is not None:
+            if role_id and group.get("role_id") != role_id:
+                raise CortexClientError(
+                    f"Cortex user group {self.user_group_name} has role "
+                    f"{group.get('pretty_role_name') or group.get('role_id')}, "
+                    f"expected {self.role_name}; refusing to change it automatically"
+                )
+            return group
+        if self.dry_run:
+            logger.info(
+                "DRY RUN: would create Cortex user group %s with role %s",
+                self.user_group_name,
+                self.role_name,
+            )
+            return None
+        payload = {
+            "request_data": {
+                "group_name": self.user_group_name,
+                "role_id": role_id,
+                "description": "Managed by GitLab Cortex RBAC sync",
+                "users": [],
+            }
+        }
+        self._request("POST", "/platform/iam/v1/user-group", payload)
+        group = self._find_user_group()
+        if group is None or not group.get("group_id"):
+            raise CortexClientError(
+                f"Cortex user group {self.user_group_name} was not found after creation"
+            )
+        return group
+
+    def add_users_to_group(self, group: Optional[dict], emails: List[str]) -> None:
+        """Add users to the shared group without removing existing members."""
+        existing = list((group or {}).get("users") or [])
+        existing_lower = {str(user).lower() for user in existing}
+        new_users = sorted({email for email in emails if email.lower() not in existing_lower})
+        if not new_users:
+            logger.info("All users are already members of Cortex user group %s", self.user_group_name)
+            return
+        if self.dry_run or group is None:
+            logger.info(
+                "DRY RUN: would add %d users to Cortex user group %s: %s",
+                len(new_users),
+                self.user_group_name,
+                ", ".join(new_users),
+            )
+            return
+        payload = {"request_data": {"users": existing + new_users}}
+        self._request(
+            "PATCH",
+            f"/platform/iam/v1/user-group/{quote(str(group['group_id']), safe='')}",
+            payload,
+        )
+        logger.info("Added %d users to Cortex user group %s", len(new_users), self.user_group_name)
 
     def get_user_scope(self, user_email: str) -> dict:
         response = self._request(
@@ -433,10 +511,15 @@ class CortexClient:
             "include_cases_issues_empty_entities": False,
             "names": [],
         }
+        existing_assets = current_scope.get("assets") or {}
+        existing_group_ids = (
+            existing_assets.get("asset_group_ids") or []
+            if existing_assets.get("mode") == "scope" else []
+        )
         request_data = {
             "assets": {
                 "mode": "scope",
-                "asset_group_ids": sorted(set(asset_group_ids)),
+                "asset_group_ids": sorted({int(group_id) for group_id in existing_group_ids} | set(asset_group_ids)),
             },
             "endpoints": endpoints_scope,
             "cases_issues": cases_issues_scope,
@@ -646,12 +729,11 @@ class CortexClient:
             logger.info("No GitLab users matched enabled Cortex users; skipping role lookup.")
             return results
         users = self.fetch_cortex_users_lookup()
-        role_names = [
-            self._generate_role_name(user_data.get("email", ""))
-            for user_data in user_repos.values()
-            if user_data.get("email")
-        ]
-        roles = self.get_custom_roles(role_names)
+        role_id = None
+        group = None
+        shared_access_error: Optional[str] = None
+        shared_access_ready = False
+        scoped_users: Dict[str, str] = {}
         for username, user_data in user_repos.items():
             email = user_data.get("email", "")
             result = self._role_result("")
@@ -678,19 +760,24 @@ class CortexClient:
                 results[username] = result
                 logger.error("Skipping %s: %s", username, result["reason"])
                 continue
-            role_name = self._generate_role_name(email)
-            role_id = self.find_role_id_by_name(role_name, roles)
+            if not shared_access_ready and shared_access_error is None:
+                try:
+                    role_id = self.ensure_shared_role()
+                    group = self.ensure_user_group(role_id)
+                    shared_access_ready = True
+                except CortexClientError as exc:
+                    logger.error("Could not prepare shared Cortex role/user group: %s", exc)
+                    shared_access_error = f"Shared Cortex role/user group unavailable: {exc}"
+            if shared_access_error:
+                result["reason"] = shared_access_error
+                results[username] = result
+                continue
             try:
                 if not self.update_user_asset_scope(email, asset_group_ids):
-                    result["reason"] = "Cortex user scope was not updated; role assignment skipped"
+                    result["reason"] = "Cortex user scope was not updated; group membership skipped"
                     results[username] = result
                     continue
-                if not role_id:
-                    role_id = self.create_custom_role(role_name, f"GitLab repository access for {email}")
-                if not role_id and self.dry_run:
-                    role_id = role_name
-                self.set_user_role(email, role_name)
-                result.update(success=True, role_id=role_id, assigned=True)
+                scoped_users[username] = email
             except CortexClientError as exc:
                 if "scope cannot be updated for admin entity" in str(exc).lower():
                     result["reason"] = "Administrator users cannot receive automated SBAC scopes"
@@ -698,6 +785,15 @@ class CortexClient:
                 else:
                     result["reason"] = str(exc)
             results[username] = result
+        if scoped_users:
+            try:
+                self.add_users_to_group(group, list(scoped_users.values()))
+            except CortexClientError as exc:
+                for username in scoped_users:
+                    results[username]["reason"] = f"Could not add user to Cortex user group: {exc}"
+                return results
+            for username in scoped_users:
+                results[username].update(success=True, role_id=role_id, assigned=True)
         return results
 
     def health_check(self) -> bool:

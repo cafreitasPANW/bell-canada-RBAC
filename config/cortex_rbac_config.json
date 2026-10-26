@@ -3,9 +3,13 @@
     "app_sec_issues_view",
     "app_sec_scans_periodic_view",
     "app_sec_scans_pr_view",
-    "app_sec_scans_ci_cd_view"
+    "app_sec_scans_ci_cd_view",
+    "app_sec_detection_rules_view",
+    "app_sec_policies_view",
+    "app_sec_supply_chain_tools_view"
   ],
-  "role_name_prefix": "devex_",
+  "role_name": "Bell-Devex-General",
+  "user_group_name": "Bell-Devex-General",
   "asset_group_repository_type": "GITLAB_REPOSITORY",
   "asset_group_name_prefix": "gitlab-repo-"
 }

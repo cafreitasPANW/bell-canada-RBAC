@@ -208,8 +208,8 @@ def get_gitlab_config() -> Tuple[str, str, bool, Optional[str], str]:
         config_key,
     )
 
-def load_cortex_rbac_config(config_key: str) -> Tuple[list, str, str, str]:
-    """Load editable role permissions and automatic dynamic-group settings."""
+def load_cortex_rbac_config(config_key: str) -> Tuple[list, str, str, str, str]:
+    """Load shared role permissions, user group, and dynamic-group settings."""
     config_path = os.getenv(
         'CORTEX_RBAC_CONFIG_FILE',
         DEFAULT_CORTEX_RBAC_CONFIG_PATH,
@@ -233,7 +233,8 @@ def load_cortex_rbac_config(config_key: str) -> Tuple[list, str, str, str]:
     permissions = config_data.get('component_permissions')
     repository_type = config_data.get('asset_group_repository_type')
     asset_group_prefix = config_data.get('asset_group_name_prefix')
-    role_name_prefix = config_data.get('role_name_prefix')
+    role_name = config_data.get('role_name')
+    user_group_name = config_data.get('user_group_name')
     if not isinstance(permissions, list) or not permissions or any(
         not isinstance(permission, str) or not permission.strip()
         for permission in permissions
@@ -254,15 +255,20 @@ def load_cortex_rbac_config(config_key: str) -> Tuple[list, str, str, str]:
         raise EnvironmentValidationError(
             'Cortex RBAC config asset_group_name_prefix must be a non-empty string'
         )
-    if not isinstance(role_name_prefix, str) or not role_name_prefix.strip():
+    if not isinstance(role_name, str) or not role_name.strip():
         raise EnvironmentValidationError(
-            'Cortex RBAC config role_name_prefix must be a non-empty string'
+            'Cortex RBAC config role_name must be a non-empty string'
+        )
+    if not isinstance(user_group_name, str) or not user_group_name.strip():
+        raise EnvironmentValidationError(
+            'Cortex RBAC config user_group_name must be a non-empty string'
         )
     return (
         permissions,
         repository_type.strip(),
         asset_group_prefix.strip(),
-        role_name_prefix.strip(),
+        role_name.strip(),
+        user_group_name.strip(),
     )
 
 def fetch_active_projects(
@@ -451,7 +457,8 @@ def initialize_clients(run_mode: str) -> Tuple[GitLabClient, CortexClient]:
             component_permissions,
             asset_group_repository_type,
             asset_group_name_prefix,
-            role_name_prefix,
+            role_name,
+            user_group_name,
         ) = load_cortex_rbac_config(gitlab_config_key)
         
         gitlab = GitLabClient(
@@ -466,7 +473,8 @@ def initialize_clients(run_mode: str) -> Tuple[GitLabClient, CortexClient]:
             secret_key=cortex_api_secret,
             integration_id=cortex_data_source_id,
             dry_run=run_mode == 'DRY_RUN',
-            role_name_prefix=role_name_prefix,
+            role_name=role_name,
+            user_group_name=user_group_name,
             default_role_name=default_role_name,
             gitlab_key=gitlab_config_key,
             component_permissions=component_permissions,

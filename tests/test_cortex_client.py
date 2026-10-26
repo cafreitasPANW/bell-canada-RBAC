@@ -81,10 +81,12 @@ class CortexClientTests(unittest.TestCase):
         self.assertIn("active@example.com", users)
 
     @patch("client.cortex_client.requests.request")
-    def test_dry_run_skips_role_assignment_mutation(self, request):
-        assigned = self.client.set_user_role("user@example.com", "devex_user")
+    def test_dry_run_skips_user_group_membership_mutation(self, request):
+        self.client.add_users_to_group(
+            {"group_id": "group-1", "users": ["old@example.com"]},
+            ["user@example.com"],
+        )
 
-        self.assertTrue(assigned)
         request.assert_not_called()
 
     @patch("client.cortex_client.requests.request")
@@ -210,7 +212,7 @@ class CortexClientTests(unittest.TestCase):
         self.assertIn("bell-canada-unified-gitlab/devex-poc/npm-smpl", updated_state)
 
     @patch("client.cortex_client.requests.request")
-    def test_role_assignment_uses_cortex_payload(self, request):
+    def test_group_membership_patch_keeps_existing_members(self, request):
         client = CortexClient(
             api_url="https://cortex.example.test",
             access_key="key-id",
@@ -218,19 +220,117 @@ class CortexClientTests(unittest.TestCase):
             integration_id="data-source-id",
             dry_run=False,
         )
-        request.return_value = self.response({"reply": {"update_count": "1"}})
+        request.return_value = self.response({})
 
-        client.set_user_role("user@example.com", "devex_user")
+        client.add_users_to_group(
+            {"group_id": "group/1", "users": ["Existing@example.com", "other@example.com"]},
+            ["new@example.com", "existing@example.com"],
+        )
 
-        payload = request.call_args.kwargs["json"]
-        self.assertEqual(payload, {
+        request.assert_called_once()
+        self.assertEqual(request.call_args.args[0], "PATCH")
+        self.assertEqual(
+            request.call_args.args[1],
+            "https://cortex.example.test/platform/iam/v1/user-group/group%2F1",
+        )
+        self.assertEqual(request.call_args.kwargs["json"], {
             "request_data": {
-                "user_emails": ["user@example.com"],
-                "role_name": "devex_user",
+                "users": ["Existing@example.com", "other@example.com", "new@example.com"],
             }
         })
-        self.assertEqual(request.call_args.args[0], "POST")
-        self.assertTrue(request.call_args.args[1].endswith("/public_api/v1/rbac/set_user_role"))
+
+    @patch("client.cortex_client.requests.request")
+    def test_group_membership_skips_patch_when_all_users_are_members(self, request):
+        self.client.dry_run = False
+
+        self.client.add_users_to_group(
+            {"group_id": "group-1", "users": ["user@example.com"]},
+            ["USER@example.com"],
+        )
+
+        request.assert_not_called()
+
+    @patch("client.cortex_client.requests.request")
+    def test_existing_user_group_is_reused(self, request):
+        request.return_value = self.response({"data": [
+            {"group_id": "g-other", "group_name": "Other", "role_id": "read_only", "users": []},
+            {"group_id": "g-1", "group_name": "Bell-Devex-General", "role_id": "role-1", "users": []},
+        ], "metadata": {}})
+
+        group = self.client.ensure_user_group("role-1")
+
+        self.assertEqual(group["group_id"], "g-1")
+        request.assert_called_once()
+        self.assertEqual(request.call_args.args[0], "GET")
+        self.assertTrue(request.call_args.args[1].endswith("/platform/iam/v1/user-group"))
+
+    @patch("client.cortex_client.requests.request")
+    def test_existing_user_group_with_different_role_is_not_changed(self, request):
+        self.client.dry_run = False
+        request.return_value = self.response({"data": [
+            {"group_id": "g-1", "group_name": "Bell-Devex-General", "role_id": "read_only",
+             "pretty_role_name": "Viewer", "users": []},
+        ]})
+
+        with self.assertRaises(CortexClientError):
+            self.client.ensure_user_group("role-1")
+
+        request.assert_called_once()
+
+    @patch("client.cortex_client.requests.request")
+    def test_missing_user_group_is_created_with_shared_role(self, request):
+        self.client.dry_run = False
+        request.side_effect = [
+            self.response({"data": []}),
+            self.response({}, status_code=201),
+            self.response({"data": [
+                {"group_id": "g-new", "group_name": "Bell-Devex-General", "role_id": "role-1", "users": []},
+            ]}),
+        ]
+
+        group = self.client.ensure_user_group("role-1")
+
+        self.assertEqual(group["group_id"], "g-new")
+        create = request.call_args_list[1]
+        self.assertEqual(create.args[0], "POST")
+        self.assertTrue(create.args[1].endswith("/platform/iam/v1/user-group"))
+        self.assertEqual(create.kwargs["json"], {
+            "request_data": {
+                "group_name": "Bell-Devex-General",
+                "role_id": "role-1",
+                "description": "Managed by GitLab Cortex RBAC sync",
+                "users": [],
+            }
+        })
+
+    @patch("client.cortex_client.requests.request")
+    def test_dry_run_does_not_create_missing_role_or_group(self, request):
+        request.side_effect = [
+            self.response({"reply": []}),
+            self.response({"data": []}),
+        ]
+
+        self.assertIsNone(self.client.ensure_shared_role())
+        self.assertIsNone(self.client.ensure_user_group(None))
+
+        self.assertEqual(
+            [call.args[0] for call in request.call_args_list],
+            ["POST", "GET"],
+        )
+        self.assertTrue(request.call_args_list[0].args[1].endswith("/public_api/v1/rbac/get_roles"))
+
+    @patch("client.cortex_client.requests.request")
+    def test_scope_update_keeps_previously_scoped_asset_groups(self, request):
+        request.side_effect = [
+            self.response({"data": {"assets": {"mode": "scope", "asset_group_ids": [7, 101]}}}),
+            self.response({"data": {"message": "ok"}}),
+        ]
+        self.client.dry_run = False
+
+        self.client.update_user_asset_scope("user@example.com", [101, 202])
+
+        payload = request.call_args_list[1].kwargs["json"]["request_data"]
+        self.assertEqual(payload["assets"], {"mode": "scope", "asset_group_ids": [7, 101, 202]})
 
     @patch("client.cortex_client.requests.request")
     def test_user_asset_scope_uses_cortex_scope_schema(self, request):
@@ -311,14 +411,14 @@ class CortexClientTests(unittest.TestCase):
         )
         request.side_effect = [
             self.response({"data": {"message": "created"}}),
-            self.response({"reply": [{"pretty_name": "devex_user", "role_id": "role-1"}]}),
+            self.response({"reply": [{"pretty_name": "Bell-Devex-General", "role_id": "role-1"}]}),
         ]
 
-        role_id = client.create_custom_role("devex_user", "GitLab repository access")
+        role_id = client.create_custom_role("Bell-Devex-General", "GitLab repository access")
 
         self.assertEqual(request.call_args_list[0].kwargs["json"], {
             "request_data": {
-                "pretty_name": "devex_user",
+                "pretty_name": "Bell-Devex-General",
                 "description": "GitLab repository access",
                 "component_permissions": [
                     "app_sec_issues_view",
@@ -332,10 +432,10 @@ class CortexClientTests(unittest.TestCase):
     def test_get_roles_includes_role_names(self, request):
         request.return_value = self.response({"reply": {"roles": []}})
 
-        self.client.get_custom_roles(["devex_user"])
+        self.client.get_custom_roles(["Bell-Devex-General"])
 
         self.assertEqual(request.call_args.kwargs["json"], {
-            "request_data": {"role_names": ["devex_user"]}
+            "request_data": {"role_names": ["Bell-Devex-General"]}
         })
 
     def test_empty_user_mapping_skips_role_lookup(self):
@@ -343,15 +443,15 @@ class CortexClientTests(unittest.TestCase):
             self.assertEqual(self.client.create_or_update_user_roles({}), {})
             get_roles.assert_not_called()
 
-    def test_admin_user_is_skipped_before_scope_and_role_updates(self):
+    def test_admin_user_is_skipped_before_scope_and_group_updates(self):
         self.client.fetch_cortex_users_lookup = Mock(return_value={
             "admin@example.com": {"role_name": "Instance Administrator"}
         })
-        self.client.get_custom_roles = Mock(return_value=[])
+        self.client.ensure_shared_role = Mock()
+        self.client.ensure_user_group = Mock()
         self.client.ensure_repository_asset_group = Mock(return_value=501)
-        self.client.create_custom_role = Mock()
         self.client.update_user_asset_scope = Mock()
-        self.client.set_user_role = Mock()
+        self.client.add_users_to_group = Mock()
 
         result = self.client.create_or_update_user_roles({
             "admin": {
@@ -363,19 +463,19 @@ class CortexClientTests(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertIn("Administrator", result["reason"])
         self.client.ensure_repository_asset_group.assert_not_called()
-        self.client.create_custom_role.assert_not_called()
+        self.client.ensure_shared_role.assert_not_called()
         self.client.update_user_asset_scope.assert_not_called()
-        self.client.set_user_role.assert_not_called()
+        self.client.add_users_to_group.assert_not_called()
 
-    def test_scope_failure_does_not_create_or_assign_role(self):
+    def test_scope_failure_does_not_add_user_to_group(self):
         self.client.fetch_cortex_users_lookup = Mock(return_value={
             "user@example.com": {"role_name": "Developer"}
         })
-        self.client.get_custom_roles = Mock(return_value=[])
+        self.client.ensure_shared_role = Mock(return_value="role-1")
+        self.client.ensure_user_group = Mock(return_value={"group_id": "g-1", "users": []})
         self.client.ensure_repository_asset_group = Mock(return_value=501)
         self.client.update_user_asset_scope = Mock(return_value=False)
-        self.client.create_custom_role = Mock()
-        self.client.set_user_role = Mock()
+        self.client.add_users_to_group = Mock()
 
         result = self.client.create_or_update_user_roles({
             "user": {
@@ -386,20 +486,19 @@ class CortexClientTests(unittest.TestCase):
 
         self.assertFalse(result["success"])
         self.assertIn("scope was not updated", result["reason"])
-        self.client.create_custom_role.assert_not_called()
-        self.client.set_user_role.assert_not_called()
+        self.client.add_users_to_group.assert_not_called()
 
     def test_admin_scope_rejection_without_role_metadata_is_skipped(self):
         self.client.fetch_cortex_users_lookup = Mock(return_value={
             "user@example.com": {}
         })
-        self.client.get_custom_roles = Mock(return_value=[])
+        self.client.ensure_shared_role = Mock(return_value="role-1")
+        self.client.ensure_user_group = Mock(return_value={"group_id": "g-1", "users": []})
         self.client.ensure_repository_asset_group = Mock(return_value=501)
         self.client.update_user_asset_scope = Mock(
             side_effect=CortexClientError("Scope cannot be updated for admin entity")
         )
-        self.client.create_custom_role = Mock()
-        self.client.set_user_role = Mock()
+        self.client.add_users_to_group = Mock()
 
         result = self.client.create_or_update_user_roles({
             "user": {
@@ -410,8 +509,24 @@ class CortexClientTests(unittest.TestCase):
 
         self.assertFalse(result["success"])
         self.assertIn("Administrator", result["reason"])
-        self.client.create_custom_role.assert_not_called()
-        self.client.set_user_role.assert_not_called()
+        self.client.add_users_to_group.assert_not_called()
+
+    def test_shared_group_failure_skips_scope_changes(self):
+        self.client.fetch_cortex_users_lookup = Mock(return_value={"user@example.com": {}})
+        self.client.ensure_shared_role = Mock(return_value="role-1")
+        self.client.ensure_user_group = Mock(side_effect=CortexClientError("group has another role"))
+        self.client.ensure_repository_asset_group = Mock(return_value=501)
+        self.client.update_user_asset_scope = Mock()
+        self.client.add_users_to_group = Mock()
+
+        result = self.client.create_or_update_user_roles({
+            "user": {"email": "user@example.com", "repositories": [{"repo": "team/repo"}]}
+        })["user"]
+
+        self.assertFalse(result["success"])
+        self.assertIn("group has another role", result["reason"])
+        self.client.update_user_asset_scope.assert_not_called()
+        self.client.add_users_to_group.assert_not_called()
 
     @patch("client.cortex_client.requests.request")
     def test_ensure_repository_asset_group_creates_dynamic_group(self, request):
@@ -557,7 +672,7 @@ class CortexClientTests(unittest.TestCase):
         request.assert_called_once()
         self.assertEqual(request.call_args.kwargs["json"], {"request_data": {}})
 
-    def test_role_sync_scopes_user_to_all_member_repo_groups_before_assignment(self):
+    def test_role_sync_scopes_users_then_adds_them_to_shared_group_once(self):
         client = CortexClient(
             api_url="https://cortex.example.test",
             access_key="key-id",
@@ -568,8 +683,12 @@ class CortexClientTests(unittest.TestCase):
             asset_group_repository_type="GITLAB_REPOSITORY",
             gitlab_key="lab",
         )
-        client.fetch_cortex_users_lookup = Mock(return_value={"dev@example.com": {}})
-        client.get_custom_roles = Mock(return_value=[{"pretty_name": "devex_dev", "role_id": "role-1"}])
+        client.fetch_cortex_users_lookup = Mock(return_value={
+            "dev@example.com": {}, "qa@example.com": {}
+        })
+        group = {"group_id": "g-1", "group_name": "Bell-Devex-General", "role_id": "role-1", "users": []}
+        client.ensure_shared_role = Mock(return_value="role-1")
+        client.ensure_user_group = Mock(return_value=group)
         client.ensure_repository_asset_group = Mock(
             side_effect=lambda path: {"group/repo-x": 11, "group/repo-y": 22}[path]
         )
@@ -577,8 +696,8 @@ class CortexClientTests(unittest.TestCase):
         client.update_user_asset_scope = Mock(
             side_effect=lambda email, ids: calls.append(("scope", email, ids)) or True
         )
-        client.set_user_role = Mock(
-            side_effect=lambda email, name: calls.append(("role", email, name)) or True
+        client.add_users_to_group = Mock(
+            side_effect=lambda grp, emails: calls.append(("group", grp["group_id"], emails))
         )
         user_repos = {
             "dev": {
@@ -587,37 +706,45 @@ class CortexClientTests(unittest.TestCase):
                     {"repo": "group/repo-x"},
                     {"repo": "group/repo-y"},
                 ],
-            }
+            },
+            "qa": {"email": "qa@example.com", "repositories": [{"repo": "group/repo-y"}]},
         }
 
         results = client.create_or_update_user_roles(user_repos)
 
         self.assertTrue(results["dev"]["success"])
+        self.assertTrue(results["qa"]["success"])
+        self.assertEqual(results["dev"]["role_id"], "role-1")
         self.assertEqual(calls, [
             ("scope", "dev@example.com", [11, 22]),
-            ("role", "dev@example.com", "devex_dev"),
+            ("scope", "qa@example.com", [22]),
+            ("group", "g-1", ["dev@example.com", "qa@example.com"]),
         ])
+        client.ensure_user_group.assert_called_once_with("role-1")
 
-    def test_role_name_uses_configured_prefix(self):
-        client = CortexClient(
-            api_url="https://cortex.example.test",
-            access_key="key-id",
-            secret_key="secret",
-            integration_id="data-source-id",
-            role_name_prefix="lab_devex_",
-        )
+    def test_group_membership_failure_marks_scoped_users_failed(self):
+        self.client.fetch_cortex_users_lookup = Mock(return_value={"dev@example.com": {}})
+        self.client.ensure_shared_role = Mock(return_value="role-1")
+        self.client.ensure_user_group = Mock(return_value={"group_id": "g-1", "users": []})
+        self.client.ensure_repository_asset_group = Mock(return_value=11)
+        self.client.update_user_asset_scope = Mock(return_value=True)
+        self.client.add_users_to_group = Mock(side_effect=CortexClientError("PATCH failed"))
 
-        self.assertEqual(client._generate_role_name("alice@example.com"), "lab_devex_alice")
+        result = self.client.create_or_update_user_roles({
+            "dev": {"email": "dev@example.com", "repositories": [{"repo": "group/repo-x"}]}
+        })["dev"]
+
+        self.assertFalse(result["success"])
+        self.assertIn("PATCH failed", result["reason"])
 
     @patch("client.cortex_client.requests.request")
-    def test_unresolved_gitlab_repo_group_prevents_role_and_scope_assignment(self, request):
+    def test_unresolved_gitlab_repo_group_prevents_group_and_scope_assignment(self, request):
         self.client.gitlab_key = "lab"
         with patch.object(self.client, "fetch_cortex_users_lookup", return_value={"dev@example.com": {}}), \
-             patch.object(self.client, "get_custom_roles", return_value=[]), \
              patch.object(self.client, "ensure_repository_asset_group", side_effect=[11, None]), \
-             patch.object(self.client, "create_custom_role") as create_role, \
+             patch.object(self.client, "ensure_shared_role") as ensure_role, \
              patch.object(self.client, "update_user_asset_scope") as update_scope, \
-             patch.object(self.client, "set_user_role") as assign_role:
+             patch.object(self.client, "add_users_to_group") as add_to_group:
             results = self.client.create_or_update_user_roles({
                 "dev": {
                     "email": "dev@example.com",
@@ -630,22 +757,21 @@ class CortexClientTests(unittest.TestCase):
 
         self.assertFalse(results["dev"]["success"])
         self.assertIn("group/repo-unmapped", results["dev"]["reason"])
-        create_role.assert_not_called()
+        ensure_role.assert_not_called()
         update_scope.assert_not_called()
-        assign_role.assert_not_called()
+        add_to_group.assert_not_called()
         request.assert_not_called()
 
     def test_asset_group_lookup_error_skips_user_without_aborting_role_batch(self):
         with patch.object(self.client, "fetch_cortex_users_lookup", return_value={"dev@example.com": {}}), \
-             patch.object(self.client, "get_custom_roles", return_value=[]), \
              patch.object(
                  self.client,
                  "ensure_repository_asset_group",
                  side_effect=CortexClientError("duplicate group is absent from list response"),
              ), \
-             patch.object(self.client, "create_custom_role") as create_role, \
+             patch.object(self.client, "ensure_shared_role") as ensure_role, \
              patch.object(self.client, "update_user_asset_scope") as update_scope, \
-             patch.object(self.client, "set_user_role") as assign_role:
+             patch.object(self.client, "add_users_to_group") as add_to_group:
             results = self.client.create_or_update_user_roles({
                 "dev": {
                     "email": "dev@example.com",
@@ -655,9 +781,9 @@ class CortexClientTests(unittest.TestCase):
 
         self.assertFalse(results["dev"]["success"])
         self.assertIn("group/repo-x", results["dev"]["reason"])
-        create_role.assert_not_called()
+        ensure_role.assert_not_called()
         update_scope.assert_not_called()
-        assign_role.assert_not_called()
+        add_to_group.assert_not_called()
 
     @patch("client.cortex_client.requests.request")
     def test_auto_discovery_switches_to_manual_and_adds_repo_one_at_a_time(self, request):

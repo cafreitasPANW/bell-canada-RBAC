@@ -7,7 +7,7 @@ The `gitlabCortexSync.py` script synchronizes GitLab projects and users with Cor
 1. **Fetching active GitLab projects** based on activity thresholds
 2. **Selecting missing repositories** in Cortex Cloud data sources
 3. **Building user-to-repository mappings** from GitLab
-4. **Creating/assigning Cortex Cloud roles** for users with their repository access
+4. **Granting shared Cortex Cloud access** by adding users to one user group that carries a view-only AppSec role
 
 ---
 
@@ -186,7 +186,7 @@ Example:
 
 ### LIVE
 - **Applies all changes** to Cortex Cloud
-- Creates missing roles, assigns roles, updates user scopes, and selects repositories
+- Creates the shared role/user group when missing, adds users to that group, updates user scopes, and selects repositories
 - Use with caution in production environments
 
 ### Cortex Repository Selection
@@ -202,7 +202,7 @@ A first live run that changes an auto-discovery source to manual can change its 
 The repository includes network-free tests for GitLab filtering and Cortex API behavior:
 
 - [tests/test_gitlab_client.py](../tests/test_gitlab_client.py) tests required topics and topic filtering.
-- [tests/test_cortex_client.py](../tests/test_cortex_client.py) tests Cortex headers, read-only lookups, repository selection payloads, role assignment payloads, and dry-run mutation protection.
+- [tests/test_cortex_client.py](../tests/test_cortex_client.py) tests Cortex headers, read-only lookups, repository selection payloads, role/user-group payloads, and dry-run mutation protection.
 
 Run the tests from the repository root:
 
@@ -219,30 +219,31 @@ python -m py_compile gitlabCortexSync.py client/cortex_client.py client/gitlab_c
 python -m json.tool config/gitlab_instances_config.json
 ```
 
-In `DRY_RUN`, read-only Cortex POST endpoints are allowed so users and roles can be inspected:
+In `DRY_RUN`, read-only Cortex endpoints are allowed so users, roles, and user groups can be inspected:
 
 ```http
 POST /public_api/v1/rbac/get_users
 POST /public_api/v1/rbac/get_roles
+GET /platform/iam/v1/user-group
 ```
 
-Cortex mutations remain blocked, including repository data-source updates, role creation, and user-role assignment.
+Cortex mutations remain blocked, including repository data-source updates, role creation, user-group creation, and user-group membership updates.
 
 ## Customer Validation
 
 Local tests cannot verify tenant-specific Cortex permissions, data-source IDs, repository response fields, or live role assignment. The customer should validate these steps in an isolated test environment:
 
 1. Configure the correct `cortex-data-source-id` for the GitLab instance.
-2. Confirm the Cortex API key can read users, roles, repositories, and data sources.
+2. Confirm the Cortex API key can read users, roles, user groups, repositories, and data sources.
 3. Confirm every `component_permissions` entry in `config/cortex_rbac_config.json` exists in the tenant's permission configuration.
 4. Run with `RUN_MODE=DRY_RUN` and review the logs.
 5. Test with one repository and one non-production Cortex user.
 6. Run with `RUN_MODE=LIVE` only after the dry-run output is approved.
-7. Verify the repository selection, generated role, and user assignment in Cortex.
+7. Verify the repository selection, the `Bell-Devex-General` role and user group, the user's group membership, and that the user's original direct role is unchanged in Cortex.
 
 Repository groups are created automatically. Before creating a group, the sync queries `POST /public_api/v1/asset-groups` with `{"request_data": {}}` to retrieve the full group list, then matches the deterministic name locally. The list returns names and IDs as `XDM.ASSET_GROUP.NAME` and `XDM.ASSET_GROUP.ID`. If Cortex reports that the group name already exists during creation, the sync refreshes the full list and reuses the existing group's ID. New groups use two AND membership conditions: `xdm.asset.type.id = GITLAB_REPOSITORY` and `xdm.asset.name = <GitLab full path>`. This prevents matching a non-repository asset that happens to have the same name. The returned group ID is then used in each member's scope. No per-repository asset-group IDs need to be maintained by an operator.
 
-`config/cortex_rbac_config.json` contains the generated role prefix, editable component permissions, repository type value, and generated-group name prefix. The two XQL field paths are fixed in code as `xdm.asset.type.id` and `xdm.asset.name`:
+`config/cortex_rbac_config.json` contains the shared role name, shared user-group name, editable component permissions, repository type value, and generated-group name prefix:
 
 ```json
 {
@@ -250,21 +251,37 @@ Repository groups are created automatically. Before creating a group, the sync q
     "app_sec_issues_view",
     "app_sec_scans_periodic_view",
     "app_sec_scans_pr_view",
-    "app_sec_scans_ci_cd_view"
+    "app_sec_scans_ci_cd_view",
+    "app_sec_detection_rules_view",
+    "app_sec_policies_view",
+    "app_sec_supply_chain_tools_view"
   ],
-  "role_name_prefix": "devex_",
+  "role_name": "Bell-Devex-General",
+  "user_group_name": "Bell-Devex-General",
   "asset_group_repository_type": "GITLAB_REPOSITORY",
   "asset_group_name_prefix": "gitlab-repo-"
 }
 ```
 
-For each developer, the code ensures one group per member repo, unions the group IDs, updates that user's Cortex Assets scope, and then assigns the generated role. New repositories are handled automatically on their first sync; existing deterministic groups are reused on later syncs. If Cortex accepts the manual data-source update before its AppSec repository inventory has indexed the new repo, the synchronizer still continues using the selected GitLab path and can create the dynamic group in that run. Cortex may take time to associate the new asset with that group, so the user may not see findings until ingestion and group evaluation complete. If the group API fails, the code fails closed and does not grant the role without the computed scope.
+The permissions are the view permissions of the Application Security category: Issues, Scans (Periodic, PR Scans, CI CD Scans), Policy Management (AppSec Rules, AppSec Policies), and 3rd Party Tools (Supply Chain Tools). AppSec Collector > Generic Collector exposes no view permission in the tenant's permission list (only the `generic_collector` action), so it cannot be part of a view-only role.
 
-Role assignment requires an identity that already exists in Cortex. The supplied Cortex User API supports listing, getting, and editing users, but does not document a user-creation endpoint. Therefore, a developer who has never logged into Cortex can still receive the generated role if their account has already been provisioned in Cortex (for example through the customer's SSO/IdP process). If the account is absent from Cortex, this script skips it; the customer must provision the identity first.
+### Shared role and user group
 
-The membership set is built from the GitLab projects returned in this execution, so it is bounded by `TOP_N_PROJECTS`, the activity window, and the configured topic/visibility filters. Set those controls so the run includes every repository whose access should remain in scope. For example, to ensure John retains X and Y while gaining Z, all three projects must be returned in the same run; if X or Y is excluded by the activity window or top-N limit, its group will be omitted from the recalculated scope.
+A Cortex user has a single direct role. Earlier versions assigned a generated `devex_<user>` role through `set_user_role`, which replaced the user's original, possibly broader, role. The sync no longer assigns direct roles. Instead it:
 
-The scope update first reads the user's current scope, then calls `PUT /platform/iam/v1/scope/user/{email}`. It replaces only `assets` and preserves existing `endpoints`, `cases_issues`, and (when returned) `datasets_rows` settings. If no endpoint or cases/issues scope exists, the request uses `no_scope` for those sections; this avoids granting unrelated access. The Cortex API requires both `endpoints` and `cases_issues` in the update body, and requires `datasets_rows` when dataset row scoping is enabled for the tenant. A successful update therefore has this shape:
+1. Finds the `role_name` role through `POST /public_api/v1/rbac/get_roles`, or creates it once through `POST /platform/iam/v1/role` with `component_permissions`.
+2. Finds the `user_group_name` group through `GET /platform/iam/v1/user-group`, or creates it through `POST /platform/iam/v1/user-group` with that `role_id`. If a group with that name already exists with a different role, the sync stops processing users instead of changing the group's role.
+3. Adds the scoped users with one `PATCH /platform/iam/v1/user-group/{group_id}` per run. Because `users` replaces the member list, the request contains the existing members plus the new users. Members are never removed, and no request is sent when everyone is already a member.
+
+Users keep their original direct role; the group role is added to it.
+
+For each developer, the code ensures one group per member repo, unions the group IDs, updates that user's Cortex Assets scope, and then adds the user to the shared user group. New repositories are handled automatically on their first sync; existing deterministic groups are reused on later syncs. If Cortex accepts the manual data-source update before its AppSec repository inventory has indexed the new repo, the synchronizer still continues using the selected GitLab path and can create the dynamic group in that run. Cortex may take time to associate the new asset with that group, so the user may not see findings until ingestion and group evaluation complete. If the group API fails, the code fails closed and does not add the user to the shared group without the computed scope.
+
+Group membership requires an identity that already exists in Cortex. The supplied Cortex User API supports listing, getting, and editing users, but does not document a user-creation endpoint. Therefore, a developer who has never logged into Cortex can still be added to the group if their account has already been provisioned in Cortex (for example through the customer's SSO/IdP process). If the account is absent from Cortex, this script skips it; the customer must provision the identity first.
+
+The scope update is additive. Asset groups that the user is already scoped to are kept, and the asset groups of this run's member repositories are added, so a repository that falls outside the activity window or `TOP_N_PROJECTS` in a later run does not remove access granted earlier.
+
+The scope update first reads the user's current scope, then calls `PUT /platform/iam/v1/scope/user/{email}`. It changes only `assets` (existing scoped asset-group IDs plus the new IDs) and preserves existing `endpoints`, `cases_issues`, and (when returned) `datasets_rows` settings. If the user's assets scope was `no_scope` (all assets), the update changes it to `scope` and limits the user to the computed asset groups; this applies to every role the user has. If no endpoint or cases/issues scope exists, the request uses `no_scope` for those sections; this avoids granting unrelated access. The Cortex API requires both `endpoints` and `cases_issues` in the update body, and requires `datasets_rows` when dataset row scoping is enabled for the tenant. A successful update therefore has this shape:
 
 ```json
 {
@@ -286,11 +303,11 @@ The scope update first reads the user's current scope, then calls `PUT /platform
 }
 ```
 
-Cortex does not allow scope updates on Instance Administrator entities. Users identified as administrators from Cortex role metadata are skipped before asset-group or role changes; administer their access directly in Cortex. If metadata does not identify an administrator, Cortex's explicit admin-scope rejection still stops role creation and assignment for that user. Other scope-update failures also stop role creation and assignment.
+Cortex does not allow scope updates on Instance Administrator entities. Users identified as administrators from Cortex role metadata are skipped before asset-group, scope, or group-membership changes; administer their access directly in Cortex. If metadata does not identify an administrator, Cortex's explicit admin-scope rejection still prevents adding that user to the group. Other scope-update failures also prevent group membership.
 
 The repository API's asset IDs are not SBAC asset-group IDs; the API-created dynamic group supplies the required integer group ID. SBAC must be enabled in Cortex Server Settings. The filter uses the XQL asset type and name fields supplied for the customer's repository inventory query. Verify the exact field identifiers are accepted by the tenant's Asset Groups API with one test repo before enabling LIVE. Cortex docs recommend keeping total asset groups below roughly 2,000; this design creates one per GitLab repo and stops creating groups near that limit. Also confirm users do not receive broader permissions/scopes through other assigned roles or groups; Cortex combines access from assignments.
 
-If a role permission list is changed, existing Cortex custom roles with the same generated name are not automatically updated by this client; Cortex's documented IAM Roles API in the supplied reference does not expose a role-edit operation. Review/update or recreate existing roles in Cortex as part of a permission change.
+If the permission list is changed, the existing `Bell-Devex-General` role is not automatically updated by this client; Cortex's documented IAM Roles API in the supplied reference does not expose a role-edit operation. Update the role in Cortex as part of a permission change. Roles named `devex_<user>` created by earlier versions are no longer used; restore each affected user's original role in Cortex and then delete those roles.
 
 Do not use production users or broad repository selections for the first live test.
 
@@ -352,8 +369,8 @@ Do not use production users or broad repository selections for the first live te
 - Returns dictionary of user-to-repos mappings
 
 ### `create_or_update_user_roles(user_repos)`
-- Creates Cortex roles with configured component permissions
-- Assigns generated roles through Cortex RBAC
+- Ensures the shared view-only role and user group exist
+- Updates each user's asset scope, then adds the users to the shared group without replacing their direct role
 - Respects `DRY_RUN` mode for preview
 
 ### `summarize_role_sync(results)`
@@ -437,7 +454,7 @@ python gitlabCortexSync.py
 2. **Discovery**: Find active GitLab projects within threshold
 3. **Registration**: Select missing repos in the Cortex data source
 4. **Mapping**: Build user-to-repository relationships
-5. **Synchronization**: Create/assign Cortex Cloud roles
+5. **Synchronization**: Add users to the shared Cortex Cloud user group
 6. **Reporting**: Summarize results with success/failure counts
 
 The entire process is logged for audit and troubleshooting purposes, with `DRY_RUN` mode available for safe preview before applying live changes.
@@ -445,6 +462,13 @@ The entire process is logged for audit and troubleshooting purposes, with `DRY_R
 ---
 
 ## Recent Updates
+
+### Shared role and user group
+
+- Replaced per-user `devex_<user>` roles and `set_user_role` with one shared view-only role, `Bell-Devex-General`, attached to a `Bell-Devex-General` user group. A direct role assignment replaced the user's original role, so users lost permissions.
+- Users are added to the group with a merged `PATCH /platform/iam/v1/user-group/{group_id}`; existing members are kept.
+- Replaced `role_name_prefix` with `role_name` and `user_group_name` in `config/cortex_rbac_config.json`, and extended `component_permissions` to every AppSec view permission.
+- Asset scope updates now keep previously scoped asset groups.
 
 ### 2026-09-11
 
