@@ -546,17 +546,37 @@ class CortexClientTests(unittest.TestCase):
         self.assertEqual(group["membership_predicate"], {
             "AND": [
                 {
-                    "SEARCH_FIELD": "xdm.asset.type.id",
+                    "SEARCH_FIELD": "xdm.asset.provider",
                     "SEARCH_TYPE": "EQ",
-                    "SEARCH_VALUE": "GITLAB_REPOSITORY",
+                    "SEARCH_VALUE": "GITLAB_SELF_MANAGED",
                 },
                 {
-                    "SEARCH_FIELD": "xdm.asset.name",
+                    "SEARCH_FIELD": "xdm.repository.name",
                     "SEARCH_TYPE": "EQ",
                     "SEARCH_VALUE": "group/repo-x",
                 },
             ]
         })
+
+    @patch("client.cortex_client.requests.request")
+    def test_asset_group_predicate_uses_configured_provider(self, request):
+        client = CortexClient(
+            api_url="https://cortex.example.test",
+            access_key="key-id",
+            secret_key="secret",
+            integration_id="data-source-id",
+            dry_run=False,
+            asset_provider="GITHUB",
+        )
+        request.side_effect = [
+            self.response({"reply": {"data": []}}),
+            self.response([{"reply": {"data": {"asset_group_id": 5}}}]),
+        ]
+
+        client.ensure_repository_asset_group("org/repo")
+
+        group = request.call_args_list[1].kwargs["json"]["request_data"]["asset_group"]
+        self.assertEqual(group["membership_predicate"]["AND"][0]["SEARCH_VALUE"], "GITHUB")
 
     @patch("client.cortex_client.requests.request")
     def test_duplicate_asset_group_name_refreshes_and_reuses_existing_group(self, request):

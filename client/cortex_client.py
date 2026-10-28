@@ -1,4 +1,4 @@
-"""Cortex Cloud API client for GitLab repository and RBAC synchronization."""
+"""Cortex Cloud API client for source-control repository and RBAC synchronization."""
 
 import datetime
 import hashlib
@@ -42,6 +42,7 @@ class CortexClient:
         component_permissions: Optional[List[str]] = None,
         asset_group_repository_type: str = "GITLAB_REPOSITORY",
         asset_group_name_prefix: str = "gitlab-repo-",
+        asset_provider: str = "GITLAB_SELF_MANAGED",
     ) -> None:
         required = {
             "api_url": api_url,
@@ -66,6 +67,7 @@ class CortexClient:
         self.component_permissions = list(component_permissions or [])
         self.asset_group_repository_type = asset_group_repository_type
         self.asset_group_name_prefix = asset_group_name_prefix
+        self.asset_provider = asset_provider
         self._roles_cache: Optional[list] = None
         self._users_cache: Optional[list] = None
         self._asset_groups_cache: Optional[list] = None
@@ -640,7 +642,7 @@ class CortexClient:
                             {
                                 "SEARCH_FIELD": "xdm.asset.provider",
                                 "SEARCH_TYPE": "EQ",
-                                "SEARCH_VALUE": "GITLAB_SELF_MANAGED"
+                                "SEARCH_VALUE": self.asset_provider
                             },
                             {
                                 "SEARCH_FIELD": "xdm.repository.name",

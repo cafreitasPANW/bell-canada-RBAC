@@ -5,103 +5,48 @@
 The `gitlabCortexSync.py` script synchronizes GitLab projects and users with Cortex Cloud Application Security by automatically:
 
 1. **Fetching active GitLab projects** based on activity thresholds
-2. **Selecting missing repositories** in Cortex Cloud data sources
-3. **Building user-to-repository mappings** from GitLab
-4. **Granting shared Cortex Cloud access** by adding users to one user group that carries a view-only AppSec role
+2. **Building user-to-repository mappings** from GitLab
+3. **Granting shared Cortex Cloud access** by scoping each user to their repositories' Asset Groups and adding them to one user group that carries a view-only AppSec role
+4. **Selecting missing repositories** in Cortex Cloud data sources
 
 ---
 
 ## Process Flow
 
+```mermaid
+flowchart TD
+    A[Validate environment and configuration<br/>env vars, RUN_MODE, instance config, RBAC config] --> B[Initialize GitLab and Cortex clients]
+    B --> C[Fetch active GitLab projects<br/>TOP_N_PROJECTS, activity window, topic and visibility filters]
+    C -->|none| Z0([Exit 0: no active projects])
+    C --> D{RUN_MODE}
+    D -->|LIVE| E1[Verify existing data-source selection<br/>read-only, matches repositoriesCount]
+    D -->|DRY_RUN| E2[Preview repository selection<br/>no PUT is sent]
+    E2 -->|no repositories| Z1([Exit 0: nothing to process])
+    E1 --> F[Fetch enabled Cortex users]
+    E2 --> F
+    F --> G[Build user-to-repository mapping<br/>GitLab members that exist in Cortex]
+    G --> H[For each user]
+    H -->|not in Cortex or Instance Administrator| S[Skip user]
+    H --> I[Find or create one dynamic Asset Group per member repo]
+    I -->|any repo unresolved| S
+    I --> J[Prepare shared access, once per run]
+    J --> J1[Find or create role Bell-Devex-General<br/>view-only AppSec permissions]
+    J1 --> J2[Find or create user group Bell-Devex-General<br/>with that role]
+    J2 -->|existing group has a different role| X[Fail remaining users<br/>no scopes changed]
+    J2 --> K[Update user asset scope<br/>existing asset groups + new asset groups]
+    K --> L[Add scoped users to the user group<br/>one merged PATCH, existing members kept]
+    L --> M{RUN_MODE}
+    M -->|LIVE| N[Readiness gate per project<br/>Asset Group resolved and all non-admin members succeeded]
+    N --> O[Append ready repos to the data-source selection<br/>cumulative, never removes repos]
+    M -->|DRY_RUN| P
+    O --> P[Summarize success, failed, skipped]
+    S --> P
+    X --> P
+    P -->|LIVE and no user succeeded| Z2([Exit 1])
+    P --> Z3([Exit 0])
 ```
-┌─────────────────────────────────────────┐
-│   Validate Environment & Configuration  │
-├─────────────────────────────────────────┤
-│   - Check required environment variables|
-│   - Parse runtime configuration         |
-│   - Set run mode (DRY_RUN or LIVE)      |
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│   Initialize API Clients                │
-├─────────────────────────────────────────┤
-│   - GitLab API client                   |
-│   - Cortex Cloud API client             |
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│   Fetch Active GitLab Projects          │
-├─────────────────────────────────────────┤
-│   - Query top N projects (default: 150) │
-│   - Filter by activity threshold        │
-│     (default: last 35 minutes)          │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-        ┌────────────┐
-        │ Projects   │
-        │ Found?     │
-        └─┬──────┬───┘
-          │ No   │ Yes
-          │      ▼
-          │  ┌─────────────────────────┐
-          │  │ Activate Repositories   │
-          │  ├─────────────────────────┤
-          │  │ - Find missing repos    │
-          │  │ - Update Cortex data source │
-          │  │   integration           │
-          │  │ - Update common ssdlc   │
-          │  │   role                  │
-          │  │   (appsec-ssdlc-sa-dev) │
-          │  └────────────┬────────────┘
-          │               │
-          │               ▼
-          │        ┌────────────┐
-          │        │ Repos      │
-          │        │ Found?     │
-          │        └─┬──────┬───┘
-          │          │ No   │ Yes
-          │          │      ▼
-          │          │  ┌──────────────────┐
-          │          │  │ Build User       │
-          │          │  │ Mappings         │
-          │          │  ├──────────────────┤
-          │          │  │ - Map each user  │
-          │          │  │   to their repos │
-          │          │  │ - Parallel       │
-          │          │  │   processing     │
-          │          │  └────────┬─────────┘
-          │          │           │
-          │          │           ▼
-          │          │  ┌──────────────────┐
-          │          │  │ Create/Update    │
-          │          │  │ Cortex Roles     │
-          │          │  ├──────────────────┤
-          │          │  │ - Sync user      │
-          │          │  │   roles with     │
-          │          │  │   repo access    │
-          │          │  └────────┬─────────┘
-          │          │           │
-          │          │           ▼
-          │          │  ┌──────────────────┐
-          │          │  │ Summarize        │
-          │          │  │ Results          │
-          │          │  ├──────────────────┤
-          │          │  │ - Count success  │
-          │          │  │ - Count failures │
-          │          │  │ - Count skipped  │
-          │          │  └────────┬─────────┘
-          │          │           │
-          └──────────┼───────────┼───────────┐
-                     │           │           │
-                     ▼           ▼           ▼
-                  ┌──────────────────────┐
-                  │   Exit (Code: 0)     │
-                  │   Success / No Data  │
-                  └──────────────────────┘
-```
+
+The user's direct role is never changed. Access is granted only through membership in the shared user group, plus the user's asset scope. In `DRY_RUN`, every write in this flow is logged and skipped; missing roles, user groups, and Asset Groups are reported as "would create".
 
 ---
 
@@ -166,11 +111,10 @@ Example:
 |----------|-------------|---------|
 | `ACTIVITY_THRESHOLD_MINUTES` | Time window for determining project activity | `30` |
 | `LOG_LEVEL` | Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL | `INFO` |
-| `GITLAB_API_URL` | Custom GitLab API URL | `https://gitlab.int.bell.ca/api/v4` |
 | `GITLAB_INSTANCE_CONFIG_FILE` | Custom path to the GitLab/Cortex instance JSON config file | `config/gitlab_instances_config.json` |
 | `CORTEX_API_URL` | Custom Cortex Cloud API URL | `https://api-yourfqdn` |
 | `CORTEX_HOST_URL` | Custom Cortex Cloud host URL used when `CORTEX_API_URL` is unset | `https://api-yourfqdn` |
-| `CORTEX_RBAC_CONFIG_FILE` | Editable JSON configuration for component permissions and automatic per-repository asset groups | `config/cortex_rbac_config.json` |
+| `CORTEX_RBAC_CONFIG_FILE` | JSON configuration for the shared role and user group names, role permissions, and automatic per-repository asset groups | `config/cortex_rbac_config.json` |
 | `RUN_MODE` | Execution mode: `DRY_RUN` (no changes) or `LIVE` (apply changes) | `DRY_RUN` |
 | `TOP_N_PROJECTS` | Number of active projects to synchronize | `100` |
 
@@ -191,7 +135,7 @@ Example:
 
 ### Cortex Repository Selection
 
-The synchronizer requires `MANUAL_SELECTION`. For GitLab integrations, the data-source record omits `state`; the sync therefore gets all repository records and selects only those whose `integrationId` matches this data-source ID and whose `isSelected` value is `true`. It uses `owner/name` as the GitLab repository path and verifies that this selected set matches `repositoriesCount` before writing. In LIVE mode, it maps members and applies required Asset Groups, scopes, and roles before selecting repositories. A project is appended only when it passes the GitLab filters, its Asset Group resolves, and each mapped non-admin member's scope/role processing succeeds. It sends a cumulative update containing the existing selected repository names plus only eligible missing repos. The data source's scope will no longer auto-discover future repos; the synchronizer is additive and does not remove repos.
+The synchronizer requires `MANUAL_SELECTION`. For GitLab integrations, the data-source record omits `state`; the sync therefore gets all repository records and selects only those whose `integrationId` matches this data-source ID and whose `isSelected` value is `true`. It uses `owner/name` as the GitLab repository path and verifies that this selected set matches `repositoriesCount` before writing. In LIVE mode, it maps members and applies the required Asset Groups, scopes, and user-group membership before selecting repositories. A project is appended only when it passes the GitLab filters, its Asset Group resolves, and each mapped non-admin member's scope and group-membership processing succeeds. It sends a cumulative update containing the existing selected repository names plus only eligible missing repos. The data source's scope will no longer auto-discover future repos; the synchronizer is additive and does not remove repos.
 
 A first live run that changes an auto-discovery source to manual can change its future onboarding behavior. Review the source's current state before running it; an administrator should confirm this transition is intended. `RUN_MODE=DRY_RUN` does not apply the mode change.
 
@@ -231,7 +175,7 @@ Cortex mutations remain blocked, including repository data-source updates, role 
 
 ## Customer Validation
 
-Local tests cannot verify tenant-specific Cortex permissions, data-source IDs, repository response fields, or live role assignment. The customer should validate these steps in an isolated test environment:
+Local tests cannot verify tenant-specific Cortex permissions, data-source IDs, repository response fields, or live user-group membership. The customer should validate these steps in an isolated test environment:
 
 1. Configure the correct `cortex-data-source-id` for the GitLab instance.
 2. Confirm the Cortex API key can read users, roles, user groups, repositories, and data sources.
@@ -241,7 +185,7 @@ Local tests cannot verify tenant-specific Cortex permissions, data-source IDs, r
 6. Run with `RUN_MODE=LIVE` only after the dry-run output is approved.
 7. Verify the repository selection, the `Bell-Devex-General` role and user group, the user's group membership, and that the user's original direct role is unchanged in Cortex.
 
-Repository groups are created automatically. Before creating a group, the sync queries `POST /public_api/v1/asset-groups` with `{"request_data": {}}` to retrieve the full group list, then matches the deterministic name locally. The list returns names and IDs as `XDM.ASSET_GROUP.NAME` and `XDM.ASSET_GROUP.ID`. If Cortex reports that the group name already exists during creation, the sync refreshes the full list and reuses the existing group's ID. New groups use two AND membership conditions: `xdm.asset.type.id = GITLAB_REPOSITORY` and `xdm.asset.name = <GitLab full path>`. This prevents matching a non-repository asset that happens to have the same name. The returned group ID is then used in each member's scope. No per-repository asset-group IDs need to be maintained by an operator.
+Repository groups are created automatically. Before creating a group, the sync queries `POST /public_api/v1/asset-groups` with `{"request_data": {}}` to retrieve the full group list, then matches the deterministic name locally. The list returns names and IDs as `XDM.ASSET_GROUP.NAME` and `XDM.ASSET_GROUP.ID`. If Cortex reports that the group name already exists during creation, the sync refreshes the full list and reuses the existing group's ID. New groups use two AND membership conditions: `xdm.asset.provider = GITLAB_SELF_MANAGED` (the `asset_provider` client parameter) and `xdm.repository.name = <repository full path>`. This prevents matching a non-repository asset that happens to have the same name. The returned group ID is then used in each member's scope. No per-repository asset-group IDs need to be maintained by an operator.
 
 `config/cortex_rbac_config.json` contains the shared role name, shared user-group name, editable component permissions, repository type value, and generated-group name prefix:
 
@@ -311,6 +255,12 @@ If the permission list is changed, the existing `Bell-Devex-General` role is not
 
 Do not use production users or broad repository selections for the first live test.
 
+### Adding another source-control provider
+
+The orchestrator depends on the `SCMClient` contract in [client/scm_client.py](../client/scm_client.py), not on `GitLabClient`: `get_active_projects(top_n, last_minutes)` and `get_project_members(project_id, include_inherited)`. A `github_client.py` must return projects with `id` and `path_with_namespace` (`owner/name`) and members with `username`, `email`, `name`, and `access_level`. On the Cortex side, pass the matching `asset_provider` value to `CortexClient`. The user-group, role, and scope logic is provider-independent.
+
+Still GitLab-specific and to change when adding a provider: the `GITLAB_*` environment variables, `config/gitlab_instances_config.json` (including the `/api/v4` suffix in `get_gitlab_config`), the `gitlab_key` client argument that seeds Asset Group names (renaming it changes the generated names), `DEFAULT_GITLAB_ACCESS_LEVEL` in `common/utils.py`, and the unused `asset_group_repository_type` setting.
+
 ---
 
 ## Exit Codes
@@ -318,7 +268,7 @@ Do not use production users or broad repository selections for the first live te
 | Code | Meaning | Action |
 |------|---------|--------|
 | `0` | **Success** | Script completed successfully |
-| `1` | **Failure** | Configuration validation or processing error occurred (see logs for details) |
+| `1` | **Failure** | Configuration validation or processing error, or a LIVE run where no user succeeded (see logs for details) |
 
 ---
 
@@ -358,9 +308,14 @@ Do not use production users or broad repository selections for the first live te
 
 ### `activate_repositories(cortex, projects, cortex_data_source_id)`
 - Identifies GitLab repositories not selected in the Cortex data source
-- Updates the Cortex data source `state` selection
-- Returns a lookup table of Cortex repository asset IDs
+- Sends one cumulative selection update: existing selected repositories plus the missing ones; never removes repositories
+- Returns a lookup of repository paths to Cortex repository IDs
 - Respects `DRY_RUN` mode for preview
+
+### `projects_ready_for_repository_selection(cortex, projects, user_repos, role_results)`
+- LIVE only; runs after user processing
+- Keeps a project only when its Asset Group resolves and every non-admin member succeeded
+- Only these projects are passed to `activate_repositories`
 
 ### `build_user_mapping(projects, gitlab, cortex_repo_lookup)`
 - Extracts user information from GitLab projects
@@ -375,9 +330,9 @@ Do not use production users or broad repository selections for the first live te
 
 ### `summarize_role_sync(results)`
 - Counts successful, failed, and skipped operations
-- Logs warnings for skipped users (not found in Cortex)
+- Treats users not found in Cortex and Instance Administrators as skipped
 - Logs errors for any failed synchronizations
-- Provides summary of sync operation completion
+- In LIVE, returns failure (exit code 1) when no user succeeded and at least one failed
 
 ---
 
@@ -452,10 +407,11 @@ python gitlabCortexSync.py
 
 1. **Initialization**: Validate environment, load clients
 2. **Discovery**: Find active GitLab projects within threshold
-3. **Registration**: Select missing repos in the Cortex data source
-4. **Mapping**: Build user-to-repository relationships
-5. **Synchronization**: Add users to the shared Cortex Cloud user group
-6. **Reporting**: Summarize results with success/failure counts
+3. **Verification**: Check the existing Cortex data-source selection (LIVE) or preview it (DRY_RUN)
+4. **Mapping**: Build user-to-repository relationships for enabled Cortex users
+5. **Access**: Create/reuse per-repo Asset Groups, the shared role and user group; update user scopes; add users to the group
+6. **Registration**: Select ready repos in the Cortex data source (LIVE)
+7. **Reporting**: Summarize results with success/failure counts
 
 The entire process is logged for audit and troubleshooting purposes, with `DRY_RUN` mode available for safe preview before applying live changes.
 

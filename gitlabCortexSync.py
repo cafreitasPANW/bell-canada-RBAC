@@ -50,6 +50,7 @@ from dotenv import load_dotenv
 # Local application imports
 from client.gitlab_client import GitLabClient
 from client.cortex_client import CortexClient, CortexClientError
+from client.scm_client import SCMClient
 from common.logger import LoggerFactory
 from common.utils import build_user_repos_mapping_parallel
 
@@ -272,7 +273,7 @@ def load_cortex_rbac_config(config_key: str) -> Tuple[list, str, str, str, str]:
     )
 
 def fetch_active_projects(
-    gitlab: GitLabClient,
+    gitlab: SCMClient,
     top_n_projects: int,
     activity_threshold_minutes: int,
     run_mode: str
@@ -351,7 +352,7 @@ def projects_ready_for_repository_selection(
 
 def build_user_mapping(
     projects: list,
-    gitlab: GitLabClient,
+    gitlab: SCMClient,
     cortex_repo_lookup: dict,
     allowed_cortex_emails: Optional[Set[str]] = None
 ) -> dict:
